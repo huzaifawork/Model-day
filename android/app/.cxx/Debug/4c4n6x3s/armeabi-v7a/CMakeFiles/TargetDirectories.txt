@@ -1,0 +1,2 @@
+C:/Users/Dell/Desktop/ModelDay_6-7-25/ModelDay/android/app/.cxx/Debug/4c4n6x3s/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/Users/Dell/Desktop/ModelDay_6-7-25/ModelDay/android/app/.cxx/Debug/4c4n6x3s/armeabi-v7a/CMakeFiles/rebuild_cache.dir
