@@ -112,3 +112,5 @@ OAuth key/
 # Temporary files
 tmp/
 temp/
+
+.vercel
