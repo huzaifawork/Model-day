@@ -23,11 +23,16 @@ class OpenAIService {
       debugPrint('🤖 OpenAI Service: Sending message with context...');
 
       final url = Uri.parse(
-          'https://model-day-xney.vercel.app/api/chat'); // Using deployed backend URL
+          'https://model-day-sage.vercel.app/api/chat'); // Using deployed backend URL
+
+      debugPrint('🌐 Making POST request to: $url');
 
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: jsonEncode({
           'messages': [
             {
@@ -40,12 +45,20 @@ class OpenAIService {
       );
 
       debugPrint('🌐 Backend response status: ${response.statusCode}');
+      debugPrint('🌐 Backend response headers: ${response.headers}');
       debugPrint('🌐 Backend response body: ${response.body}');
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['response'] ?? 'No response from AI.';
+        try {
+          final data = jsonDecode(response.body);
+          return data['response'] ?? 'No response from AI.';
+        } catch (jsonError) {
+          debugPrint('❌ JSON decode error: $jsonError');
+          debugPrint('❌ Response body was: ${response.body}');
+          return 'Error parsing AI response: $jsonError';
+        }
       } else {
+        debugPrint('❌ HTTP error ${response.statusCode}: ${response.body}');
         return 'Failed to get AI response (${response.statusCode}): ${response.body}';
       }
     } catch (e) {
