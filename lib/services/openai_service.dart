@@ -9,7 +9,7 @@ class OpenAIService {
   static void initialize() {
     // Since we're using a backend proxy, no direct initialization needed
     // This method exists for compatibility with the main.dart initialization
-    debugPrint('🤖 OpenAI Service initialized - using backend proxy v2');
+    debugPrint('🤖 OpenAI Service initialized - using backend proxy');
   }
 
   /// Send a chat message and get AI response from backend
@@ -23,16 +23,11 @@ class OpenAIService {
       debugPrint('🤖 OpenAI Service: Sending message with context...');
 
       final url = Uri.parse(
-          'https://model-day-sage.vercel.app/api/chat'); // Using deployed backend URL
-
-      debugPrint('🌐 Making POST request to: $url');
+          'http://localhost:3001/api/openai/chat'); // Change to your deployed backend URL in production
 
       final response = await http.post(
         url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'messages': [
             {
@@ -44,38 +39,11 @@ class OpenAIService {
         }),
       );
 
-      debugPrint('🌐 Backend response status: ${response.statusCode}');
-      debugPrint('🌐 Backend response headers: ${response.headers}');
-      debugPrint('🌐 Backend response body: ${response.body}');
-
       if (response.statusCode == 200) {
-        try {
-          // Check if response body looks like HTML instead of JSON
-          if (response.body.trim().startsWith('<!DOCTYPE') ||
-              response.body.trim().startsWith('<html')) {
-            debugPrint('❌ Received HTML instead of JSON');
-            debugPrint(
-                '❌ Response body: ${response.body.substring(0, 200)}...');
-            return 'Error: Backend returned HTML instead of JSON. This usually means the API endpoint is not working correctly.';
-          }
-
-          final data = jsonDecode(response.body);
-          return data['response'] ?? 'No response from AI.';
-        } catch (jsonError) {
-          debugPrint('❌ JSON decode error: $jsonError');
-          debugPrint(
-              '❌ Response body was: ${response.body.substring(0, 200)}...');
-
-          // Check if it's the HTML error we're seeing
-          if (response.body.contains('<!DOCTYPE')) {
-            return 'Error: Backend API is returning HTML instead of JSON. Please check the backend deployment.';
-          }
-
-          return 'Error parsing AI response: $jsonError';
-        }
+        final data = jsonDecode(response.body);
+        return data['response'] ?? 'No response from AI.';
       } else {
-        debugPrint('❌ HTTP error ${response.statusCode}: ${response.body}');
-        return 'Failed to get AI response (${response.statusCode}): ${response.body}';
+        return 'Failed to get AI response: ${response.body}';
       }
     } catch (e) {
       debugPrint('❌ OpenAI Service error: $e');
