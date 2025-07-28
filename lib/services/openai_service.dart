@@ -9,7 +9,7 @@ class OpenAIService {
   static void initialize() {
     // Since we're using a backend proxy, no direct initialization needed
     // This method exists for compatibility with the main.dart initialization
-    debugPrint('🤖 OpenAI Service initialized - using backend proxy');
+    debugPrint('🤖 OpenAI Service initialized - using backend proxy v2');
   }
 
   /// Send a chat message and get AI response from backend
@@ -39,11 +39,14 @@ class OpenAIService {
         }),
       );
 
+      debugPrint('🌐 Backend response status: ${response.statusCode}');
+      debugPrint('🌐 Backend response body: ${response.body}');
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['response'] ?? 'No response from AI.';
       } else {
-        return 'Failed to get AI response: ${response.body}';
+        return 'Failed to get AI response (${response.statusCode}): ${response.body}';
       }
     } catch (e) {
       debugPrint('❌ OpenAI Service error: $e');
