@@ -23,7 +23,7 @@ class OpenAIService {
       debugPrint('🤖 OpenAI Service: Sending message with context...');
 
       final url = Uri.parse(
-          'http://localhost:3001/api/openai/chat'); // Change to your deployed backend URL in production
+          'https://model-day-xney.vercel.app/api/chat'); // Using deployed backend URL
 
       final response = await http.post(
         url,
