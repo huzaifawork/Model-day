@@ -1,8 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/chat.js": {}
-  },
   "routes": [
     {
       "src": "/api/chat",
