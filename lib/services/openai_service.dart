@@ -50,11 +50,27 @@ class OpenAIService {
 
       if (response.statusCode == 200) {
         try {
+          // Check if response body looks like HTML instead of JSON
+          if (response.body.trim().startsWith('<!DOCTYPE') ||
+              response.body.trim().startsWith('<html')) {
+            debugPrint('❌ Received HTML instead of JSON');
+            debugPrint(
+                '❌ Response body: ${response.body.substring(0, 200)}...');
+            return 'Error: Backend returned HTML instead of JSON. This usually means the API endpoint is not working correctly.';
+          }
+
           final data = jsonDecode(response.body);
           return data['response'] ?? 'No response from AI.';
         } catch (jsonError) {
           debugPrint('❌ JSON decode error: $jsonError');
-          debugPrint('❌ Response body was: ${response.body}');
+          debugPrint(
+              '❌ Response body was: ${response.body.substring(0, 200)}...');
+
+          // Check if it's the HTML error we're seeing
+          if (response.body.contains('<!DOCTYPE')) {
+            return 'Error: Backend API is returning HTML instead of JSON. Please check the backend deployment.';
+          }
+
           return 'Error parsing AI response: $jsonError';
         }
       } else {
