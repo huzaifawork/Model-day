@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent OCR Test Image Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .agent-card {
+            background: white;
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 30px;
+            width: 400px;
+            margin: 20px auto;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #333;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            font-size: 16px;
+            color: #666;
+        }
+        .field {
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+        }
+        .label {
+            font-weight: bold;
+            width: 120px;
+            color: #333;
+        }
+        .value {
+            color: #555;
+            font-size: 16px;
+        }
+        .contact-info {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .notes {
+            background: #fff9c4;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #ffd700;
+            margin: 20px 0;
+        }
+        .generate-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        .generate-btn:hover {
+            background: #0056b3;
+        }
+        #canvas {
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Agent OCR Test Image Generator</h1>
+    <p>This will generate test images with agent information for OCR testing.</p>
+
+    <div class="agent-card" id="agentCard1">
+        <div class="header">
+            <div class="title">TALENT AGENT</div>
+            <div class="subtitle">Professional Representation</div>
+        </div>
+        
+        <div class="field">
+            <span class="label">Name:</span>
+            <span class="value">Sarah Johnson</span>
+        </div>
+        
+        <div class="field">
+            <span class="label">Agency:</span>
+            <span class="value">Elite Modeling Agency</span>
+        </div>
+        
+        <div class="field">
+            <span class="label">Phone:</span>
+            <span class="value">+1 (555) 123-4567</span>
+        </div>
+        
+        <div class="field">
+            <span class="label">Email:</span>
+            <span class="value">sarah.johnson@elitemodeling.com</span>
+        </div>
+        
+        <div class="contact-info">
+            <div class="field">
+                <span class="label">Office:</span>
+                <span class="value">123 Fashion Ave, New York, NY 10001</span>
+            </div>
+            <div class="field">
+                <span class="label">Website:</span>
+                <span class="value">www.elitemodeling.com</span>
+            </div>
+        </div>
+        
+        <div class="notes">
+            <strong>Specialties:</strong> Fashion, Commercial, Editorial
+            <br><strong>Commission:</strong> 15-20%
+            <br><strong>Experience:</strong> 10+ years in industry
+        </div>
+    </div>
+
+    <div class="agent-card" id="agentCard2">
+        <div class="header">
+            <div class="title">BOOKING AGENT</div>
+            <div class="subtitle">Model Management</div>
+        </div>
+        
+        <div class="field">
+            <span class="label">Name:</span>
+            <span class="value">Michael Chen</span>
+        </div>
+        
+        <div class="field">
+            <span class="label">Agency:</span>
+            <span class="value">Premier Talent Group</span>
+        </div>
+        
+        <div class="field">
+            <span class="label">Phone:</span>
+            <span class="value">+1 (555) 987-6543</span>
+        </div>
+        
+        <div class="field">
+            <span class="label">Email:</span>
+            <span class="value">m.chen@premiertalent.com</span>
+        </div>
+        
+        <div class="contact-info">
+            <div class="field">
+                <span class="label">Office:</span>
+                <span class="value">456 Broadway St, Los Angeles, CA 90210</span>
+            </div>
+            <div class="field">
+                <span class="label">Direct:</span>
+                <span class="value">+1 (555) 987-6544</span>
+            </div>
+        </div>
+        
+        <div class="notes">
+            <strong>Focus:</strong> High-end fashion, Runway, Print
+            <br><strong>Rate:</strong> $500-2000/day
+            <br><strong>Available:</strong> Mon-Fri 9AM-6PM PST
+        </div>
+    </div>
+
+    <button class="generate-btn" onclick="downloadAsImage('agentCard1', 'agent_card_1.png')">
+        Download Agent Card 1 as Image
+    </button>
+    
+    <button class="generate-btn" onclick="downloadAsImage('agentCard2', 'agent_card_2.png')">
+        Download Agent Card 2 as Image
+    </button>
+
+    <canvas id="canvas" style="display: none;"></canvas>
+
+    <script>
+        function downloadAsImage(elementId, filename) {
+            const element = document.getElementById(elementId);
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Set canvas size
+            canvas.width = element.offsetWidth + 40;
+            canvas.height = element.offsetHeight + 40;
+            
+            // Fill white background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Use html2canvas library (you'll need to include it)
+            // For now, let's create a simple text-based image
+            ctx.fillStyle = '#000000';
+            ctx.font = '16px Arial';
+            
+            const text = element.innerText;
+            const lines = text.split('\n');
+            let y = 30;
+            
+            lines.forEach(line => {
+                if (line.trim()) {
+                    ctx.fillText(line.trim(), 20, y);
+                    y += 20;
+                }
+            });
+            
+            // Download the image
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+        
+        // Alternative: Right-click and "Save as Image" instruction
+        function showInstructions() {
+            alert(`To create test images for OCR:
+            
+1. Right-click on any agent card above
+2. Select "Save as Image" or "Screenshot"
+3. Save the image to your computer
+4. Use this image in the agent creation form for OCR testing
+
+The OCR should extract:
+- Agent name
+- Agency name  
+- Phone number
+- Email address
+- Office address
+- Notes and specialties`);
+        }
+    </script>
+    
+    <div style="text-align: center; margin: 30px;">
+        <button class="generate-btn" onclick="showInstructions()">
+            📋 How to Create Test Images
+        </button>
+    </div>
+    
+    <div style="background: #e8f4f8; padding: 20px; border-radius: 10px; margin: 20px 0;">
+        <h3>🧪 OCR Testing Instructions:</h3>
+        <ol>
+            <li><strong>Create test image:</strong> Right-click on an agent card above and save as image</li>
+            <li><strong>Go to agent page:</strong> Navigate to <code>http://localhost:3000/#/new-agent</code></li>
+            <li><strong>Upload image:</strong> Click the OCR upload area and select your saved image</li>
+            <li><strong>Test OCR:</strong> The system should extract agent information automatically</li>
+            <li><strong>Verify results:</strong> Check if name, agency, phone, email are populated correctly</li>
+        </ol>
+        
+        <h4>Expected OCR Results:</h4>
+        <ul>
+            <li>✅ <strong>Name:</strong> Sarah Johnson / Michael Chen</li>
+            <li>✅ <strong>Agency:</strong> Elite Modeling Agency / Premier Talent Group</li>
+            <li>✅ <strong>Phone:</strong> +1 (555) 123-4567 / +1 (555) 987-6543</li>
+            <li>✅ <strong>Email:</strong> sarah.johnson@elitemodeling.com / m.chen@premiertalent.com</li>
+            <li>✅ <strong>Address:</strong> Office location details</li>
+        </ul>
+    </div>
+</body>
+</html>

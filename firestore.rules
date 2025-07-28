@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow authenticated users to read/write their own user document
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Allow admins to read all user documents for admin panel
+      allow read: if request.auth != null && isAdmin();
+    }
+    
+    // Admin collections - full access for authenticated users
+    match /admins/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Admin activities - full access for authenticated users
+    match /admin_activities/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Admin stats - full access for authenticated users
+    match /admin_stats/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Support messages - allow users to create, admins to manage
+    match /support_messages/{document} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // User sub-collections (jobs, castings, etc.) - owner and admin access
+    match /users/{userId}/{collection}/{document} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == userId || isAdmin());
+    }
+    
+    // Allow authenticated users to read/write test documents
+    match /test/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Allow authenticated users to read/write all other collections
+    // This maintains your existing broad permissions
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+             get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.is_active == true;
+    }
+  }
+}
