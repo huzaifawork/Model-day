@@ -1,0 +1,18 @@
+{
+  "name": "model-day-flutter",
+  "version": "1.0.0",
+  "description": "Model Day - Professional Modeling Career Manager (Flutter Web App with Node.js API)",
+  "type": "module",
+  "scripts": {
+    "vercel-build": "echo 'Vercel build: Using existing Flutter build files'"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/huzaifawork/modelDay-Frontend.git"
+  },
+  "author": "huzaifawork",
+  "license": "MIT"
+}

@@ -1,0 +1,138 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+!build/web/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Android Gradle cache (added to avoid permission errors)
+android/.gradle/
+
+# Firebase
+firebase-debug.log
+.firebase/
+
+# Web related
+web/build/
+
+# Windows
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugin_registrant.h
+
+# macOS
+macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Coverage
+coverage/
+
+# Symbols
+app.*.symbols
+
+# Exceptions to above rules.
+!/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+
+# OAuth keys and sensitive files
+OAuth key/
+*.json
+!pubspec.lock
+!vercel.json
+!manifest.json
+!package.json
+!analysis_options.yaml
+
+# API Keys and Secrets - NEVER COMMIT THESE
+**/api_keys/
+**/secrets/
+**/*secret*
+**/*key*.txt
+**/*token*.txt
+
+# Build outputs
+*.exe
+*.dill
+*.track.dill
+
+# Documentation files that might contain sensitive info
+*.docx
+*.md
+!README.md
+!DOCS/README.md
+
+# Test files
+*.png
+*.jpg
+*.jpeg
+*.webp
+!assets/images/*
+
+# Scripts and batch files
+*.bat
+*.sh
+!build.sh
+!deploy.sh
+
+# Database and SQL files
+*.sql
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Vercel output/config
+.vercel/
+
+# Node.js dependencies and logs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Backend environment files (Node.js API)
+.env
+.env.local
+.env.production
+.env.development

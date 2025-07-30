@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Model Day - Your modeling career management platform.">
+
+  <!-- Cross-Origin-Opener-Policy for Google Auth -->
+  <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin-allow-popups">
+  <meta http-equiv="Cross-Origin-Embedder-Policy" content="unsafe-none">
+  <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
+
+  <!-- Google OAuth Client ID -->
+  <meta name="google-signin-client_id" content="373125623062-6tlqmnc91u973gtdivp9urfilorekb3e.apps.googleusercontent.com">
+
+  <!-- Additional CORS headers for OAuth -->
+  <meta http-equiv="Access-Control-Allow-Origin" content="*">
+  <meta http-equiv="Access-Control-Allow-Methods" content="GET, POST, OPTIONS">
+  <meta http-equiv="Access-Control-Allow-Headers" content="Content-Type, Authorization">
+
+  <!-- Font rendering optimization -->
+  <meta name="font-display" content="swap">
+
+  <!-- Material Icons Font -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Model Day">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="favicon.ico"/>
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Model Day</title>
+  <link rel="manifest" href="manifest.json">
+
+
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Tesseract.js for Web OCR -->
+  <script src="https://unpkg.com/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+
+  <!-- Firebase Storage CORS workaround for development -->
+  <script src="firebase-storage-cors.js"></script>
+</head>
+<body>
+  <!-- Google Sign-In JavaScript SDK -->
+  <script src="https://apis.google.com/js/api.js" async defer></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- Initialize Google API -->
+  <script>
+    window.addEventListener('load', function() {
+      if (window.gapi) {
+        gapi.load('auth2', function() {
+          gapi.auth2.init({
+            client_id: '373125623062-6tlqmnc91u973gtdivp9urfilorekb3e.apps.googleusercontent.com' // Web client ID
+          });
+        });
+      }
+    });
+  </script>
+
+  <!-- Handle OAuth callback -->
+  <script>
+    window.addEventListener('load', function() {
+      // Check if this is an OAuth callback
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      const state = urlParams.get('state');
+      const error = urlParams.get('error');
+
+      if (code || error) {
+        console.log('OAuth callback detected');
+        // The Flutter app will handle this through the OAuthCallbackPage
+      }
+    });
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
