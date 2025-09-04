@@ -19,7 +19,7 @@ workflows:
           flutter analyze
       - name: Flutter build apk
         script: |
-          flutter build apk --release
+          flutter build apk --release --android-skip-build-dependency-validation
     artifacts:
       - build/**/outputs/apk/**/*.apk
       - build/**/outputs/bundle/**/*.aab
