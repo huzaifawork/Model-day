@@ -181,7 +181,7 @@ class _AgentDropdownState extends State<AgentDropdown> {
               color: Colors.grey[900],
             ),
             child: DropdownButtonFormField<String>(
-              value: _getSafeDropdownValue(),
+              initialValue: _getSafeDropdownValue(),
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 contentPadding:

@@ -15,12 +15,16 @@ import 'package:new_flutter/providers/polaroids_provider.dart';
 import 'package:new_flutter/providers/meetings_provider.dart';
 import 'package:new_flutter/providers/ai_jobs_provider.dart';
 import 'package:new_flutter/providers/other_events_provider.dart';
+import 'package:new_flutter/providers/notification_provider.dart';
+import 'package:new_flutter/providers/approval_notification_provider.dart';
 import 'package:new_flutter/services/admin_auth_service.dart';
+import 'package:new_flutter/services/password_link_service.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/utils/simple_route_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Build v5 - Hardcoded URLs - 2025-01-30
 
   debugPrint('🚀 APP STARTING - main() called');
 
@@ -41,6 +45,15 @@ void main() async {
 
   // Initialize Firestore after Firebase - let it use default settings for web
   debugPrint('✅ Firebase and Firestore initialized successfully');
+
+  // Initialize password link service
+  try {
+    await PasswordLinkService.initialize();
+    debugPrint('✅ Password link service initialized successfully');
+  } catch (e) {
+    debugPrint('⚠️ Password link service initialization warning: $e');
+    // Don't block app startup for this service
+  }
 
   debugPrint('🏃 Running MyApp...');
   runApp(const MyApp());
@@ -67,6 +80,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => MeetingsProvider()),
         ChangeNotifierProvider(create: (context) => AiJobsProvider()),
         ChangeNotifierProvider(create: (context) => OtherEventsProvider()),
+        ChangeNotifierProvider(create: (context) => NotificationProvider()),
+        ChangeNotifierProvider(create: (context) => ApprovalNotificationProvider()),
       ],
       child: _buildMaterialApp(context),
     );

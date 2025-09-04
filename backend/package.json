@@ -1,0 +1,21 @@
+{
+  "name": "modelday-email-service",
+  "version": "1.0.0",
+  "description": "Email notification service for ModelDay app",
+  "main": "email_service.js",
+  "scripts": {
+    "start": "node email_service.js",
+    "dev": "nodemon email_service.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.8",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

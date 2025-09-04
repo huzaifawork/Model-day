@@ -59,25 +59,25 @@ class AgentsProvider extends ChangeNotifier {
   }
 
   /// Create a new agent
-  Future<bool> createAgent(Map<String, dynamic> agentData) async {
+  Future<String?> createAgent(Map<String, dynamic> agentData) async {
     try {
       _setLoading(true);
       
       final newAgent = await _agentsService.createAgent(agentData);
       
-      if (newAgent != null) {
+      if (newAgent != null && newAgent.id != null) {
         await loadAgents();
-        return true;
+        return newAgent.id!;
       } else {
         _error = 'Failed to create agent';
         _setLoading(false);
-        return false;
+        return null;
       }
     } catch (e) {
       _error = 'Error creating agent: $e';
       _setLoading(false);
       debugPrint('Error creating agent: $e');
-      return false;
+      return null;
     }
   }
 

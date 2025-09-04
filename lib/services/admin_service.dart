@@ -232,6 +232,27 @@ class AdminService {
     }
   }
 
+  /// Get admin emails for filtering purposes
+  static Future<Set<String>> _getAdminEmails() async {
+    try {
+      debugPrint('🔍 AdminService._getAdminEmails() - Fetching admin emails...');
+      final firestore = FirebaseFirestore.instance;
+      final querySnapshot = await firestore.collection(_collectionName).get();
+      
+      final adminEmails = querySnapshot.docs
+          .map((doc) => doc.data()['email'] as String?)
+          .where((email) => email != null)
+          .cast<String>()
+          .toSet();
+      
+      debugPrint('🔍 AdminService._getAdminEmails() - Found ${adminEmails.length} admin emails: $adminEmails');
+      return adminEmails;
+    } catch (e) {
+      debugPrint('❌ Error getting admin emails: $e');
+      return <String>{};
+    }
+  }
+
   /// Get all admins
   static Future<List<Admin>> getAllAdmins() async {
     try {
@@ -436,6 +457,7 @@ class AdminService {
   /// Get admin statistics with time filter
   static Future<AdminStats> getAdminStats([String timeFilter = 'Month']) async {
     try {
+      debugPrint('🔍 AdminService.getAdminStats() - Starting with filter: $timeFilter');
       final firestore = FirebaseFirestore.instance;
       final now = DateTime.now();
 
@@ -454,50 +476,97 @@ class AdminService {
           startDate = DateTime(now.year, now.month, 1);
           break;
       }
+      debugPrint('🔍 AdminService.getAdminStats() - Start date for filter: $startDate');
 
-      // Get total users count
+      // Get total users count (excluding admin users)
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching users collection...');
       final usersSnapshot = await firestore.collection('users').get();
-      final totalUsers = usersSnapshot.docs.length;
+      
+      // Get admin emails to exclude from user count
+      final adminEmails = await _getAdminEmails();
+      
+      // Filter out admin users from total count
+      final nonAdminUsers = usersSnapshot.docs.where((doc) {
+        final data = doc.data();
+        final email = data['email'] as String?;
+        return email != null && !adminEmails.contains(email);
+      }).toList();
+      
+      final totalUsers = nonAdminUsers.length;
+      debugPrint('🔍 AdminService.getAdminStats() - Total users found: $totalUsers (excluded ${adminEmails.length} admin users)');
 
-      // Get new users in selected period
-      final newUsersSnapshot = await firestore
+      // Get new users in selected period - try both 'created_date' and 'createdAt' fields (excluding admin users)
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching new users since $startDate...');
+      
+      // Try with 'created_date' first (as seen in UserService)
+      var newUsersSnapshot = await firestore
           .collection('users')
           .where('created_date', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
           .get();
-      final newUsersThisMonth = newUsersSnapshot.docs.length;
+      
+      // If no results, try with 'createdAt' field
+      if (newUsersSnapshot.docs.isEmpty) {
+        debugPrint('🔍 AdminService.getAdminStats() - No users found with created_date, trying createdAt...');
+        newUsersSnapshot = await firestore
+            .collection('users')
+            .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+            .get();
+      }
+      
+      // Filter out admin users from new users count
+      final newNonAdminUsers = newUsersSnapshot.docs.where((doc) {
+        final data = doc.data();
+        final email = data['email'] as String?;
+        return email != null && !adminEmails.contains(email);
+      }).toList();
+      
+      final newUsersThisMonth = newNonAdminUsers.length;
+      debugPrint('🔍 AdminService.getAdminStats() - New users in period: $newUsersThisMonth (excluded admin users)');
 
-      // Get total jobs count
-      final jobsSnapshot = await firestore.collectionGroup('jobs').get();
+      // Get total jobs count from root collection
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching jobs from root collection...');
+      final jobsSnapshot = await firestore.collection('jobs').get();
       final totalJobs = jobsSnapshot.docs.length;
+      debugPrint('🔍 AdminService.getAdminStats() - Total jobs found: $totalJobs');
 
-      // Get new jobs in selected period
+      // Get new jobs in selected period using 'createdAt' field
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching new jobs since $startDate...');
       final newJobsSnapshot = await firestore
-          .collectionGroup('jobs')
-          .where('created_date', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .collection('jobs')
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
           .get();
       final newJobsThisMonth = newJobsSnapshot.docs.length;
+      debugPrint('🔍 AdminService.getAdminStats() - New jobs in period: $newJobsThisMonth');
 
-      // Get total castings count
-      final castingsSnapshot = await firestore.collectionGroup('castings').get();
+      // Get total castings count from root collection
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching castings from root collection...');
+      final castingsSnapshot = await firestore.collection('castings').get();
       final totalCastings = castingsSnapshot.docs.length;
+      debugPrint('🔍 AdminService.getAdminStats() - Total castings found: $totalCastings');
 
-      // Get new castings in selected period
+      // Get new castings in selected period using 'createdAt' field
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching new castings since $startDate...');
       final newCastingsSnapshot = await firestore
-          .collectionGroup('castings')
-          .where('created_date', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .collection('castings')
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
           .get();
       final newCastingsThisMonth = newCastingsSnapshot.docs.length;
+      debugPrint('🔍 AdminService.getAdminStats() - New castings in period: $newCastingsThisMonth');
 
       // Get support messages count
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching support messages collection...');
       final supportSnapshot = await firestore.collection('support_messages').get();
       final supportMessages = supportSnapshot.docs.length;
+      debugPrint('🔍 AdminService.getAdminStats() - Total support messages found: $supportMessages');
 
       // Get pending support messages
+      debugPrint('🔍 AdminService.getAdminStats() - Fetching pending support messages...');
       final pendingSupportSnapshot = await firestore
           .collection('support_messages')
           .where('status', isEqualTo: 'pending')
           .get();
       final pendingSupportMessages = pendingSupportSnapshot.docs.length;
+      debugPrint('🔍 AdminService.getAdminStats() - Pending support messages found: $pendingSupportMessages');
 
       // Get recent activities
       final activitiesSnapshot = await firestore

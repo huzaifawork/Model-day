@@ -80,6 +80,7 @@ enum PaymentStatus {
 
 enum OptionStatus {
   pending,
+  confirmed,
   clientCanceled,
   iDeclined,
   postponed,
@@ -91,6 +92,8 @@ extension OptionStatusExtension on OptionStatus {
     switch (this) {
       case OptionStatus.pending:
         return 'Pending';
+      case OptionStatus.confirmed:
+        return 'Confirmed';
       case OptionStatus.clientCanceled:
         return 'Client Canceled';
       case OptionStatus.iDeclined:

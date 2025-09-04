@@ -14,6 +14,7 @@ class OnStay {
   final String? contactName;
   final String? contactPhone;
   final String? contactEmail;
+  final String? agentId;
   final String status;
   final String paymentStatus;
   final String? notes;
@@ -37,6 +38,7 @@ class OnStay {
     this.contactName,
     this.contactPhone,
     this.contactEmail,
+    this.agentId,
     required this.status,
     required this.paymentStatus,
     this.notes,
@@ -54,7 +56,8 @@ class OnStay {
     final locationName = json['location_name'] ?? json['title'] ?? '';
     final address = json['address'] ?? json['location'] ?? '';
     final contactName = json['contact_name'] ?? json['client'] ?? '';
-    final cost = json['cost'] ?? json['daily_rate'] ?? json['total_amount'] ?? 0;
+    final cost =
+        json['cost'] ?? json['daily_rate'] ?? json['total_amount'] ?? 0;
     final checkInDate = json['check_in_date'] ?? json['start_date'];
     final checkOutDate = json['check_out_date'] ?? json['end_date'];
 
@@ -70,12 +73,8 @@ class OnStay {
       locationName: locationName,
       stayType: json['stay_type'] ?? json['accommodation'],
       address: address,
-      checkInDate: checkInDate != null
-          ? DateTime.parse(checkInDate)
-          : null,
-      checkOutDate: checkOutDate != null
-          ? DateTime.parse(checkOutDate)
-          : null,
+      checkInDate: checkInDate != null ? DateTime.parse(checkInDate) : null,
+      checkOutDate: checkOutDate != null ? DateTime.parse(checkOutDate) : null,
       checkInTime: json['check_in_time'],
       checkOutTime: json['check_out_time'],
       cost: (cost).toDouble(),
@@ -83,18 +82,17 @@ class OnStay {
       contactName: contactName,
       contactPhone: json['contact_phone'],
       contactEmail: json['contact_email'],
+      agentId: json['agent_id'],
       status: json['status'] ?? 'pending',
       paymentStatus: json['payment_status'] ?? 'unpaid',
       notes: json['notes'],
-      files: json['files'] != null 
-          ? List<String>.from(json['files']) 
-          : null,
+      files: json['files'] != null ? List<String>.from(json['files']) : null,
       createdBy: json['created_by'],
-      createdDate: json['created_date'] != null 
-          ? DateTime.parse(json['created_date']) 
+      createdDate: json['created_date'] != null
+          ? DateTime.parse(json['created_date'])
           : null,
-      updatedDate: json['updated_date'] != null 
-          ? DateTime.parse(json['updated_date']) 
+      updatedDate: json['updated_date'] != null
+          ? DateTime.parse(json['updated_date'])
           : null,
       isSample: json['is_sample'] ?? false,
     );
@@ -128,6 +126,7 @@ class OnStay {
       'contact_name': contactName,
       'contact_phone': contactPhone,
       'contact_email': contactEmail,
+      'agent_id': agentId,
       'payment_status': paymentStatus,
       'files': files,
       'created_by': createdBy,
@@ -239,5 +238,21 @@ class OnStay {
       updatedDate: updatedDate ?? this.updatedDate,
       isSample: isSample ?? this.isSample,
     );
+  }
+
+  /// Get the start date as a DateTime object (check-in date)
+  DateTime? get startDateTime {
+    return checkInDate;
+  }
+
+  /// Get the end date as a DateTime object (check-out date)
+  DateTime? get endDateTime {
+    return checkOutDate;
+  }
+
+  /// Check if this is a multi-day stay
+  bool get isMultiDay {
+    if (checkInDate == null || checkOutDate == null) return false;
+    return !checkInDate!.isAtSameMomentAs(checkOutDate!);
   }
 }

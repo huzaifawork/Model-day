@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:new_flutter/services/auth_service.dart';
+import 'package:new_flutter/services/password_link_service.dart';
 import 'package:new_flutter/services/logger_service.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 
@@ -42,27 +43,38 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       _message = '';
       _isLoading = true;
     });
+    
+    final currentContext = context;
+    final authService = currentContext.read<AuthService>();
 
     try {
+      final email = _emailController.text.trim();
+      
+      // Check if this is a Google account that can be linked
+      final canLink = await PasswordLinkService.canLinkPasswordToGoogleAccount(email);
+      
       debugPrint('🔄 ForgotPasswordPage - Sending password reset email...');
-      await context.read<AuthService>().sendPasswordResetEmail(
-            email: _emailController.text.trim(),
-          );
+      await authService.sendPasswordResetEmail(email: email);
 
       debugPrint('✅ ForgotPasswordPage - Password reset email sent successfully');
 
-      if (mounted) {
+      if (currentContext.mounted) {
         setState(() {
           _emailSent = true;
-          _message = 'Password reset email sent! Please check your inbox and follow the instructions to reset your password.';
+          if (canLink) {
+            _message = 'We\'ve detected this is a Google account. We\'re linking password authentication to your account. Please check your inbox for the password reset email - this may take a few moments to process.';
+          } else {
+            _message = 'Password reset email sent! Please check your inbox and follow the instructions to reset your password.';
+          }
           _isLoading = false;
         });
       }
     } catch (e) {
       debugPrint('❌ ForgotPasswordPage - Password reset failed: $e');
-      if (mounted) {
+      if (currentContext.mounted) {
+        String friendly = _getErrorMessage(e.toString());
         setState(() {
-          _error = _getErrorMessage(e.toString());
+          _error = friendly;
           _isLoading = false;
         });
       }
@@ -72,16 +84,22 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   String _getErrorMessage(String error) {
     debugPrint('🔍 ForgotPasswordPage - Parsing error: $error');
 
-    if (error.contains('user-not-found') || error.contains('auth/user-not-found')) {
+    if (error.contains('user-not-found') ||
+        error.contains('auth/user-not-found')) {
       return 'No account found with this email address.';
-    } else if (error.contains('invalid-email') || error.contains('auth/invalid-email')) {
+    } else if (error.contains('invalid-email') ||
+        error.contains('auth/invalid-email')) {
       return 'Please enter a valid email address.';
-    } else if (error.contains('too-many-requests') || error.contains('auth/too-many-requests')) {
+    } else if (error.contains('too-many-requests') ||
+        error.contains('auth/too-many-requests')) {
       return 'Too many requests. Please try again later.';
-    } else if (error.contains('network-request-failed') || error.contains('auth/network-request-failed')) {
+    } else if (error.contains('network-request-failed') ||
+        error.contains('auth/network-request-failed')) {
       return 'Network error. Please check your connection and try again.';
     } else if (error.contains('auth/missing-email')) {
       return 'Please enter your email address.';
+    } else if (error.contains('requires-google-signin')) {
+      return 'This email is registered with Google. We\'re now linking password authentication to your account. Please try again in a few moments.';
     } else {
       return 'An error occurred. Please try again.';
     }
@@ -140,7 +158,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                           size: 40,
                           color: AppTheme.goldColor,
                         ),
-                      ).animate().scale(duration: 600.ms, curve: Curves.elasticOut),
+                      )
+                          .animate()
+                          .scale(duration: 600.ms, curve: Curves.elasticOut),
 
                       const SizedBox(height: 32),
 
@@ -175,11 +195,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                               Form(
                                 key: _formKey,
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
                                     TextFormField(
                                       controller: _emailController,
-                                      decoration: AppTheme.textFieldDecoration.copyWith(
+                                      decoration:
+                                          AppTheme.textFieldDecoration.copyWith(
                                         labelText: 'Email',
                                         hintText: 'name@example.com',
                                         prefixIcon: const Icon(
@@ -193,21 +215,27 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                         if (value == null || value.isEmpty) {
                                           return 'Please enter your email';
                                         }
-                                        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                                        if (!RegExp(
+                                                r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                                            .hasMatch(value)) {
                                           return 'Please enter a valid email';
                                         }
                                         return null;
                                       },
-                                      style: const TextStyle(color: Colors.white),
+                                      style:
+                                          const TextStyle(color: Colors.white),
                                       cursorColor: AppTheme.goldColor,
                                       cursorWidth: 2.0,
-                                      onFieldSubmitted: (_) => _handlePasswordReset(),
+                                      onFieldSubmitted: (_) =>
+                                          _handlePasswordReset(),
                                     ),
                                     const SizedBox(height: 24),
 
                                     // Send Reset Email Button
                                     ElevatedButton.icon(
-                                      onPressed: _isLoading ? null : _handlePasswordReset,
+                                      onPressed: _isLoading
+                                          ? null
+                                          : _handlePasswordReset,
                                       icon: _isLoading
                                           ? const SizedBox(
                                               width: 20,
@@ -218,7 +246,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                             )
                                           : const Icon(Icons.send),
                                       label: Text(
-                                        _isLoading ? 'Sending...' : 'Send Reset Email',
+                                        _isLoading
+                                            ? 'Sending...'
+                                            : 'Send Reset Email',
                                       ),
                                       style: AppTheme.primaryButtonStyle,
                                     ),
@@ -232,16 +262,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                 decoration: BoxDecoration(
                                   color: Colors.green.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                                  border: Border.all(
+                                      color:
+                                          Colors.green.withValues(alpha: 0.3)),
                                 ),
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.check_circle, color: Colors.green),
+                                    const Icon(Icons.check_circle,
+                                        color: Colors.green),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
                                         'Reset email sent to ${_emailController.text}',
-                                        style: const TextStyle(color: Colors.green),
+                                        style: const TextStyle(
+                                            color: Colors.green),
                                       ),
                                     ),
                                   ],
@@ -266,16 +300,19 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                 decoration: BoxDecoration(
                                   color: Colors.red.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                                  border: Border.all(
+                                      color: Colors.red.withValues(alpha: 0.3)),
                                 ),
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.error_outline, color: Colors.red),
+                                    const Icon(Icons.error_outline,
+                                        color: Colors.red),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         _error,
-                                        style: const TextStyle(color: Colors.red),
+                                        style:
+                                            const TextStyle(color: Colors.red),
                                       ),
                                     ),
                                   ],
@@ -291,16 +328,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                 decoration: BoxDecoration(
                                   color: Colors.green.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                                  border: Border.all(
+                                      color:
+                                          Colors.green.withValues(alpha: 0.3)),
                                 ),
                                 child: Row(
                                   children: [
-                                    const Icon(Icons.check_circle, color: Colors.green),
+                                    const Icon(Icons.check_circle,
+                                        color: Colors.green),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         _message,
-                                        style: const TextStyle(color: Colors.green),
+                                        style: const TextStyle(
+                                            color: Colors.green),
                                       ),
                                     ),
                                   ],
@@ -321,11 +362,14 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                             ],
                           ],
                         ),
-                      ).animate().slideY(
-                        begin: 0.3,
-                        duration: 600.ms,
-                        curve: Curves.easeOutCubic,
-                      ).fadeIn(duration: 600.ms),
+                      )
+                          .animate()
+                          .slideY(
+                            begin: 0.3,
+                            duration: 600.ms,
+                            curve: Curves.easeOutCubic,
+                          )
+                          .fadeIn(duration: 600.ms),
                     ],
                   ),
                 ),

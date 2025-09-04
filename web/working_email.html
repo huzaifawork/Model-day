@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ModelDay Email Test</title>
+    <script src="https://smtpjs.com/v3/smtp.js"></script>
+</head>
+<body>
+    <h1>ModelDay Email Test</h1>
+    <button onclick="sendTestEmail()">Send Test Email</button>
+    <div id="result"></div>
+
+    <script>
+        async function sendTestEmail() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Sending email...';
+            
+            try {
+                // Method 1: Try using a working email service
+                const response = await fetch('https://formspree.io/f/mwpkgqpz', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: 'dhamtorlab@gmail.com',
+                        subject: 'Test Email from ModelDay',
+                        message: 'This is a test email to verify the email system is working!',
+                        _replyto: 'noreply@modelday.app',
+                        name: 'ModelDay App'
+                    })
+                });
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = '✅ Email sent successfully via Formspree!';
+                    console.log('Email sent successfully');
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                console.error('Email failed:', error);
+                resultDiv.innerHTML = '❌ Email failed: ' + error.message;
+                
+                // Try alternative method
+                try {
+                    const altResponse = await fetch('https://api.web3forms.com/submit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            access_key: 'YOUR_ACCESS_KEY', // Get from web3forms.com
+                            subject: 'Test Email from ModelDay',
+                            email: 'dhamtorlab@gmail.com',
+                            message: 'This is a test email via Web3Forms!',
+                            from_name: 'ModelDay App'
+                        })
+                    });
+                    
+                    if (altResponse.ok) {
+                        resultDiv.innerHTML = '✅ Email sent via Web3Forms!';
+                    } else {
+                        resultDiv.innerHTML = '❌ All email methods failed';
+                    }
+                } catch (altError) {
+                    resultDiv.innerHTML = '❌ All email methods failed';
+                }
+            }
+        }
+        
+        // Auto-test when page loads
+        window.addEventListener('load', function() {
+            console.log('Email test page loaded');
+        });
+    </script>
+</body>
+</html>

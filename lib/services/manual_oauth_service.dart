@@ -20,12 +20,18 @@ class ManualOAuthService {
   static const String _userInfoEndpoint =
       'https://www.googleapis.com/oauth2/v2/userinfo';
 
-  // Redirect URIs - Fully dynamic based on current URL
+  // Redirect URIs - Hardcoded for deployment stability
   static String _getWebRedirectUri() {
     if (kIsWeb) {
       final currentUrl = Uri.base;
-      // Always use the current URL dynamically
-      return '${currentUrl.scheme}://${currentUrl.host}/auth/callback';
+      // Check if we're on localhost or deployment
+      if (currentUrl.host.contains('localhost') ||
+          currentUrl.host.contains('127.0.0.1')) {
+        return 'http://localhost:3000/auth/callback';
+      } else {
+        // Hardcoded Vercel URL for deployment
+        return 'https://model-day1.vercel.app/auth/callback';
+      }
     }
     return 'http://localhost:3000/auth/callback'; // Fallback for non-web
   }

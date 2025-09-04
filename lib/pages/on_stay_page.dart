@@ -4,8 +4,11 @@ import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/models/on_stay.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/on_stay_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class OnStayPage extends StatefulWidget {
   const OnStayPage({super.key});
@@ -18,13 +21,31 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
   List<OnStay> _stays = [];
   bool _loading = true;
   String _selectedFilter = 'all';
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _loadAgents();
     _loadStays();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -418,12 +439,12 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
                     Icon(Icons.location_on, size: 16, color: Colors.grey[400]),
                     const SizedBox(width: 4),
                     Expanded(
-                      child: Text(
-                        stay.address!,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[400],
-                        ),
+                      child: ClickableContactInfo(
+                        text: stay.address!,
+                        type: ContactType.location,
+                        showIcon: false,
+                        textColor: Colors.blue[400],
+                        fontSize: 14,
                       ),
                     ),
                   ],
@@ -578,7 +599,8 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
                 const SizedBox(height: 8),
               ],
               if (stay.address != null) ...[
-                _buildClickableDetailRow('Address', stay.address!, ContactType.address),
+                _buildClickableDetailRow(
+                    'Address', stay.address!, ContactType.address),
                 const SizedBox(height: 8),
               ],
               _buildDetailRow('Dates', stay.dateRange),
@@ -588,6 +610,11 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
               ],
               const SizedBox(height: 8),
               _buildDetailRow('Cost', stay.formattedCost),
+              // Show agent information (check agentId field first, then notes)
+              if (_getEffectiveAgentId(stay) != null) ...[
+                const SizedBox(height: 8),
+                _buildAgentRow('Agent', _getEffectiveAgentId(stay)!),
+              ],
               const SizedBox(height: 8),
               _buildDetailRow('Status', stay.status),
               const SizedBox(height: 8),
@@ -598,15 +625,17 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
               ],
               if (stay.contactPhone != null) ...[
                 const SizedBox(height: 8),
-                _buildClickableDetailRow('Phone', stay.contactPhone!, ContactType.phone),
+                _buildClickableDetailRow(
+                    'Phone', stay.contactPhone!, ContactType.phone),
               ],
               if (stay.contactEmail != null) ...[
                 const SizedBox(height: 8),
-                _buildClickableDetailRow('Email', stay.contactEmail!, ContactType.email),
+                _buildClickableDetailRow(
+                    'Email', stay.contactEmail!, ContactType.email),
               ],
-              if (stay.notes != null && stay.notes!.isNotEmpty) ...[
+              if (_getCleanNotes(stay.notes) != null) ...[
                 const SizedBox(height: 8),
-                _buildDetailRow('Notes', stay.notes!),
+                _buildDetailRow('Notes', _getCleanNotes(stay.notes)!),
               ],
             ],
           ),
@@ -614,9 +643,12 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.goldColor,
+            ),
             child: const Text('Close'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               final result = await Navigator.pushNamed(
@@ -628,6 +660,10 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
                 _loadStays(); // Refresh the list
               }
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
             child: const Text('Edit'),
           ),
         ],
@@ -659,7 +695,8 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildClickableDetailRow(String label, String value, ContactType type) {
+  Widget _buildClickableDetailRow(
+      String label, String value, ContactType type) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -684,5 +721,173 @@ class _OnStayPageState extends State<OnStayPage> with TickerProviderStateMixin {
         ),
       ],
     );
+  }
+
+  /// Get effective agent ID - check agentId field first, then notes, then agency name matching
+  String? _getEffectiveAgentId(OnStay stay) {
+    // First, check if agentId field is set
+    if (stay.agentId != null && stay.agentId!.isNotEmpty) {
+      return stay.agentId;
+    }
+
+    // Fallback: try to extract from notes
+    return _getAgentIdFromNotes(stay.notes);
+  }
+
+  String? _getAgentIdFromNotes(String? notes) {
+    if (notes == null || notes.isEmpty) {
+      return null;
+    }
+
+    final lines = notes.split('\n');
+
+    // First, try to find explicit Agent ID
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Agent ID: ')) {
+        return line.substring('Agent ID: '.length);
+      }
+    }
+
+    // Fallback: try to match agency name against agent names
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Agency: ')) {
+        final agencyName = line.substring('Agency: '.length).trim();
+        if (agencyName.isNotEmpty) {
+          // Try to find an agent with matching name
+          for (final agent in _agentCache.values) {
+            if (agent.name.toLowerCase() == agencyName.toLowerCase()) {
+              return agent.id;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Extract only the "Additional Notes" part from structured notes
+  String? _getCleanNotes(String? notes) {
+    if (notes == null || notes.isEmpty) {
+      return null;
+    }
+
+    // Split notes by double newlines to get individual sections
+    final sections = notes.split('\n\n');
+
+    for (final section in sections) {
+      final trimmedSection = section.trim();
+      if (trimmedSection.startsWith('Additional Notes: ')) {
+        final cleanNotes = trimmedSection.substring(18).trim();
+        return cleanNotes.isNotEmpty ? cleanNotes : null;
+      }
+    }
+
+    // If no "Additional Notes" section found, check if the entire notes field
+    // contains only unstructured text (no "Field: Value" patterns)
+    final hasStructuredData =
+        notes.contains(RegExp(r'^[A-Za-z\s]+:\s', multiLine: true));
+    if (!hasStructuredData) {
+      // Return the entire notes if it doesn't contain structured data
+      return notes.trim().isNotEmpty ? notes.trim() : null;
+    }
+
+    return null;
+  }
+
+  Widget _buildAgentRow(String label, String agentId) {
+    // Get agent from cache
+    final agent = _agentCache[agentId];
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: TextStyle(
+              color: Colors.grey[400],
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent?.name ?? 'Unknown Agent',
+                style: const TextStyle(color: Colors.white),
+              ),
+              const SizedBox(width: 6),
+              if (agent != null)
+                InkWell(
+                  onTap: () => _sendWhatsAppToAgent(agent),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.chat,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+    final currentContext = context;
+
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
   }
 }

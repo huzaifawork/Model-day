@@ -9,8 +9,10 @@ class Job {
   final String location;
   final String? bookingAgent;
   final String date;
+  final String? endDate;
   final String? time;
   final String? endTime;
+  final bool isMultiDay;
   final double rate;
   final String? currency;
   final String? files;
@@ -36,8 +38,10 @@ class Job {
     required this.location,
     this.bookingAgent,
     required this.date,
+    this.endDate,
     this.time,
     this.endTime,
+    this.isMultiDay = false,
     this.rate = 0,
     this.currency,
     this.files,
@@ -69,8 +73,10 @@ class Job {
       location: json['location'] ?? '',
       bookingAgent: json['booking_agent'],
       date: json['date'] ?? '',
+      endDate: json['end_date'],
       time: json['time'],
       endTime: json['end_time'],
+      isMultiDay: json['is_multi_day'] ?? false,
       rate: (json['rate'] ?? 0).toDouble(),
       currency: json['currency'],
       files: json['files'],
@@ -99,8 +105,10 @@ class Job {
       'location': location,
       'booking_agent': bookingAgent,
       'date': date,
+      'end_date': endDate,
       'time': time,
       'end_time': endTime,
+      'is_multi_day': isMultiDay,
       'rate': rate,
       'currency': currency,
       'files': files,
@@ -187,8 +195,10 @@ class Job {
     String? location,
     String? bookingAgent,
     String? date,
+    String? endDate,
     String? time,
     String? endTime,
+    bool? isMultiDay,
     double? rate,
     String? currency,
     String? files,
@@ -214,8 +224,10 @@ class Job {
       location: location ?? this.location,
       bookingAgent: bookingAgent ?? this.bookingAgent,
       date: date ?? this.date,
+      endDate: endDate ?? this.endDate,
       time: time ?? this.time,
       endTime: endTime ?? this.endTime,
+      isMultiDay: isMultiDay ?? this.isMultiDay,
       rate: rate ?? this.rate,
       currency: currency ?? this.currency,
       files: files ?? this.files,
@@ -230,5 +242,24 @@ class Job {
       taxPercentage: taxPercentage ?? this.taxPercentage,
       additionalFees: additionalFees ?? this.additionalFees,
     );
+  }
+
+  /// Get the start date as a DateTime object
+  DateTime? get startDateTime {
+    try {
+      return DateTime.parse(date);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Get the end date as a DateTime object
+  DateTime? get endDateTime {
+    if (endDate == null || endDate!.isEmpty) return null;
+    try {
+      return DateTime.parse(endDate!);
+    } catch (e) {
+      return null;
+    }
   }
 }

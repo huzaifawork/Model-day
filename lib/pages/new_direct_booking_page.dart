@@ -7,6 +7,7 @@ import 'package:new_flutter/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:new_flutter/services/direct_bookings_service.dart';
 import 'package:new_flutter/services/file_upload_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/models/direct_booking.dart';
 import 'package:new_flutter/widgets/ocr_upload_widget.dart';
 
@@ -68,6 +69,11 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
 
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
+
   // Form state
   String _selectedCurrency = 'USD';
   String _selectedJobStatus = 'Confirmed';
@@ -122,6 +128,9 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (4 text fields: Client Name, Location, Day Rate, Usage Rate, Notes)
+    _manualFocusNodes = List.generate(5, (index) => FocusNode());
     _isEditing = widget.editingBooking != null;
 
     if (_isEditing && widget.editingBooking != null) {
@@ -178,9 +187,19 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
         _startDate = booking.date;
         _startDateController.text =
             DateFormat('MM/dd/yyyy').format(booking.date!);
-        _endDate = booking.date;
-        _endDateController.text =
-            DateFormat('MM/dd/yyyy').format(booking.date!);
+
+        // Load end date for multi-day bookings
+        if (booking.endDate != null) {
+          _endDate = booking.endDate;
+          _endDateController.text =
+              DateFormat('MM/dd/yyyy').format(booking.endDate!);
+          _isDateRange = true;
+        } else {
+          _endDate = booking.date;
+          _endDateController.text =
+              DateFormat('MM/dd/yyyy').format(booking.date!);
+          _isDateRange = false;
+        }
 
         // Initialize with single day schedule for the booking date
         _daySchedules.clear();
@@ -257,6 +276,13 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
     _notesController.dispose();
     _startDateController.dispose();
     _endDateController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
@@ -343,6 +369,14 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
         'booking_id': bookingId,
       };
 
+      // Add multi-day booking data
+      if (_isDateRange && _endDate != null) {
+        bookingData['end_date'] = _endDate!.toIso8601String().split('T')[0];
+        bookingData['is_multi_day'] = true;
+      } else {
+        bookingData['is_multi_day'] = false;
+      }
+
       // Add file data if files were uploaded
       if (fileData != null) {
         bookingData['files'] = fileData;
@@ -427,11 +461,12 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
                       debugPrint('OCR Widget callback received data: $data');
                       _handleOcrDataExtracted(data);
                     },
-                    onAutoSubmit: () {
-                      debugPrint(
-                          'Auto-submitting direct booking form after OCR...');
-                      _saveBooking();
-                    },
+                    // Auto-submit disabled for testing
+                    // onAutoSubmit: () {
+                    //   debugPrint(
+                    //       'Auto-submitting direct booking form after OCR...');
+                    //   _saveBooking();
+                    // },
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -712,14 +747,15 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
   }
 
   // OCR data extraction handler - similar to job page
-  void _handleOcrDataExtracted(Map<String, dynamic> extractedData) {
+  Future<void> _handleOcrDataExtracted(
+      Map<String, dynamic> extractedData) async {
     debugPrint('=== DIRECT BOOKING PAGE FORM HANDLER CALLED ===');
     debugPrint('OCR Data received: $extractedData');
     debugPrint('Keys received: ${extractedData.keys.toList()}');
     setState(() {
-      // Set default date to July 19, 2025
-      _startDate = DateTime(2025, 7, 19);
-      _endDate = DateTime(2025, 7, 19);
+      // Set default date to current date
+      _startDate = DateTime.now();
+      _endDate = DateTime.now();
       _startDateController.text = DateFormat('MM/dd/yyyy').format(_startDate!);
       _endDateController.text = DateFormat('MM/dd/yyyy').format(_endDate!);
 
@@ -847,23 +883,12 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
         }
       }
 
-      // Extract and set agent
+      // Agent matching moved outside setState - see below
       if (extractedData['bookingAgent'] != null ||
           extractedData['agent'] != null) {
-        final agentName =
-            extractedData['bookingAgent'] ?? extractedData['agent'];
-        debugPrint('Setting agent: $agentName');
-
-        // Simple agent matching based on known agents
-        final agentNameLower = agentName.toString().toLowerCase();
-        if (agentNameLower.contains('ogbhai')) {
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj'; // ogbhai's ID
-          debugPrint('Agent ID set to: $_selectedAgentId (ogbhai)');
-        } else if (agentNameLower.contains('sarah') ||
-            agentNameLower.contains('johnson')) {
-          _selectedAgentId = 'jy07nJzMq9ZvahfeJBAa'; // Sarah Johnson's ID
-          debugPrint('Agent ID set to: $_selectedAgentId (Sarah Johnson)');
-        }
+        debugPrint('✅ Agent will be set after setState');
+      } else {
+        debugPrint('❌ No agent found in OCR data');
       }
       if (extractedData['jobType'] != null ||
           extractedData['bookingType'] != null) {
@@ -913,11 +938,148 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
     });
     debugPrint('✅ OCR data extraction completed for direct booking');
 
-    // Auto-submit after OCR processing with longer delay to ensure all fields are populated
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      debugPrint('🚀 Auto-submitting direct booking after OCR...');
-      _saveBooking();
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(extractedData);
+
+    // Handle agent matching after setState (async operation)
+    if (extractedData['bookingAgent'] != null ||
+        extractedData['agent'] != null) {
+      final agentName = extractedData['bookingAgent'] ?? extractedData['agent'];
+      debugPrint('🔍 Now matching agent: $agentName');
+      await _matchAgentIntelligently(agentName.toString());
+    }
+
+    // Auto-submit disabled for testing
+    // Future.delayed(const Duration(milliseconds: 1500), () {
+    //   debugPrint('🚀 Auto-submitting direct booking after OCR...');
+    //   _saveBooking();
+    // });
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
     });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
   }
 
   Widget _buildDateField(String label, TextEditingController controller,
@@ -1019,7 +1181,7 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
                   }
                 });
               },
-              activeColor: AppTheme.goldColor,
+              thumbColor: WidgetStateProperty.all(AppTheme.goldColor),
             ),
           ],
         ),
@@ -1477,12 +1639,30 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
   }) {
     debugPrint('🔍 Building text field: $label with value: ${controller.text}');
 
-    return _formNavigation.createInputField(
+    // Determine focus node based on controller
+    FocusNode? focusNode;
+    if (controller == _clientNameController) {
+      focusNode = _manualFocusNodes[0]; // Client Name
+    } else if (controller == _locationController) {
+      focusNode = _manualFocusNodes[1]; // Location
+    } else if (controller == _dayRateController) {
+      focusNode = _manualFocusNodes[2]; // Day Rate
+    } else if (controller == _usageRateController) {
+      focusNode = _manualFocusNodes[3]; // Usage Rate
+    } else if (controller == _notesController) {
+      focusNode = _manualFocusNodes[4]; // Notes
+    }
+
+    return TextFormField(
       controller: controller,
-      label: label,
-      placeholder: placeholder,
+      focusNode: focusNode,
       keyboardType: keyboardType,
       maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: placeholder,
+        border: const OutlineInputBorder(),
+      ),
       validator: isRequired
           ? (value) {
               if (value == null || value.isEmpty) {
@@ -1513,7 +1693,7 @@ class _NewDirectBookingPageState extends State<NewDirectBookingPage> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: value != null && items.contains(value) ? value : null,
+          initialValue: value != null && items.contains(value) ? value : null,
           onChanged: onChanged,
           style: const TextStyle(color: Colors.white),
           dropdownColor: const Color(0xFF2A2A2A),

@@ -6,6 +6,7 @@ import 'package:new_flutter/widgets/ui/button.dart';
 import 'package:new_flutter/widgets/ui/agent_dropdown.dart';
 import 'package:new_flutter/widgets/ui/form_navigation_helper.dart';
 import 'package:new_flutter/widgets/ocr_upload_widget.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:intl/intl.dart';
 
 class NewTestPage extends StatefulWidget {
@@ -37,6 +38,11 @@ class _NewTestPageState extends State<NewTestPage> {
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
 
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
+
   final List<String> _testTypes = ['free', 'paid'];
   final List<String> _currencies = [
     'USD',
@@ -61,6 +67,9 @@ class _NewTestPageState extends State<NewTestPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (4 text fields: Photographer Name, Rate, Location, Notes)
+    _manualFocusNodes = List.generate(4, (index) => FocusNode());
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Initialize call time controller with current time
@@ -157,23 +166,30 @@ class _NewTestPageState extends State<NewTestPage> {
     _callTimeController.dispose();
     _locationController.dispose();
     _notesController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> data) {
+  Future<void> _handleOcrDataExtracted(Map<String, dynamic> data) async {
     debugPrint('🧪 OCR data extracted for test: $data');
 
     setState(() {
-      // Set default date to July 24, 2025 if no date extracted
+      // Set default date to current date if no date extracted
       if (data['date'] != null) {
         try {
           _date = DateTime.parse(data['date']);
         } catch (e) {
           debugPrint('Could not parse date: ${data['date']}');
-          _date = DateTime(2025, 7, 24);
+          _date = DateTime.now();
         }
       } else {
-        _date = DateTime(2025, 7, 24);
+        _date = DateTime.now();
       }
 
       // Map client name to photographer name
@@ -246,28 +262,11 @@ class _NewTestPageState extends State<NewTestPage> {
         }
       }
 
-      // Map agent - try to find matching agent ID
+      // Agent matching moved outside setState - see below
       if (data['bookingAgent'] != null) {
-        final agentName = data['bookingAgent'].toString().toLowerCase();
-        // Check if the agent name contains "ogbhai" - map to the known agent ID
-        if (agentName.contains('ogbhai')) {
-          _selectedAgentId =
-              'sUAOiTx4b9dzTlSkIIOj'; // Known agent ID for ogbhai
-        }
-
-        // Also add to notes for reference
-        final currentNotes = _notesController.text;
-        final agentInfo = 'Agent: ${data['bookingAgent']}';
-        _notesController.text =
-            currentNotes.isEmpty ? agentInfo : '$currentNotes\n$agentInfo';
+        debugPrint('✅ Agent will be set after setState');
       } else {
-        // Set default agent ID for ogbhai
-        _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj';
-
-        final currentNotes = _notesController.text;
-        final agentInfo = 'Agent: ogbhai(uzibhaikiagencykoishak)';
-        _notesController.text =
-            currentNotes.isEmpty ? agentInfo : '$currentNotes\n$agentInfo';
+        debugPrint('❌ No agent found in OCR data');
       }
 
       // Map requirements to notes
@@ -289,6 +288,141 @@ class _NewTestPageState extends State<NewTestPage> {
     });
 
     debugPrint('🧪 Test form populated with OCR data');
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(data);
+
+    // Handle agent matching after setState (async operation)
+    if (data['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${data['bookingAgent']}');
+      await _matchAgentIntelligently(data['bookingAgent'].toString());
+    }
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
   }
 
   Future<void> _saveTest() async {
@@ -367,18 +501,23 @@ class _NewTestPageState extends State<NewTestPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting test form after OCR...');
-                    _saveTest();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting test form after OCR...');
+                  //   _saveTest();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
 
               // Photographer Name
-              _formNavigation.createInputField(
-                label: 'Photographer Name *',
+              TextFormField(
                 controller: _photographerNameController,
+                focusNode: _manualFocusNodes[0], // Photographer Name
+                decoration: const InputDecoration(
+                  labelText: 'Photographer Name *',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter photographer name';
@@ -394,7 +533,7 @@ class _NewTestPageState extends State<NewTestPage> {
                   labelText: 'Test Type *',
                   border: OutlineInputBorder(),
                 ),
-                value: _testTypes.contains(_testType) ? _testType : null,
+                initialValue: _testTypes.contains(_testType) ? _testType : null,
                 items: _testTypes.map((type) {
                   return DropdownMenuItem(
                     value: type,
@@ -423,10 +562,14 @@ class _NewTestPageState extends State<NewTestPage> {
                   children: [
                     Expanded(
                       flex: 2,
-                      child: _formNavigation.createInputField(
-                        label: 'Rate *',
+                      child: TextFormField(
                         controller: _rateController,
+                        focusNode: _manualFocusNodes[1], // Rate
                         keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Rate *',
+                          border: OutlineInputBorder(),
+                        ),
                         validator: (value) {
                           if (_testType == 'paid' &&
                               (value == null || value.isEmpty)) {
@@ -450,7 +593,7 @@ class _NewTestPageState extends State<NewTestPage> {
                           labelText: 'Currency',
                           border: OutlineInputBorder(),
                         ),
-                        value: _selectedCurrency,
+                        initialValue: _selectedCurrency,
                         items: _currencies.map((currency) {
                           return DropdownMenuItem(
                             value: currency,
@@ -534,9 +677,13 @@ class _NewTestPageState extends State<NewTestPage> {
               const SizedBox(height: 16),
 
               // Location
-              _formNavigation.createInputField(
-                label: 'Location *',
+              TextFormField(
                 controller: _locationController,
+                focusNode: _manualFocusNodes[2], // Location
+                decoration: const InputDecoration(
+                  labelText: 'Location *',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a location';
@@ -571,7 +718,7 @@ class _NewTestPageState extends State<NewTestPage> {
                   labelText: 'Status',
                   border: OutlineInputBorder(),
                 ),
-                value: _statuses.contains(_status) ? _status : 'pending',
+                initialValue: _statuses.contains(_status) ? _status : 'pending',
                 items: _statuses.map((status) {
                   return DropdownMenuItem(
                     value: status,
@@ -591,10 +738,14 @@ class _NewTestPageState extends State<NewTestPage> {
               const SizedBox(height: 16),
 
               // Notes
-              _formNavigation.createInputField(
-                label: 'Notes',
+              TextFormField(
                 controller: _notesController,
+                focusNode: _manualFocusNodes[3], // Notes
                 maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 32),
               if (_error != null) ...[

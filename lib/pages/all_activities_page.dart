@@ -12,6 +12,7 @@ import '../widgets/app_layout.dart';
 
 import '../widgets/ui/badge.dart' as ui;
 import '../widgets/ui/card.dart' as ui;
+import '../widgets/clickable_contact_info.dart';
 import '../theme/app_theme.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -31,6 +32,7 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
   String _statusFilter = 'all';
   String _sortBy = 'date';
   final bool _ascending = false;
+  bool _filtersExpanded = false;
 
   final List<String> _types = [
     'all',
@@ -383,15 +385,17 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
   Color _getStatusTextColor(String status) {
     switch (status.toLowerCase()) {
       case 'pending':
-        return const Color(0xFF854D0E); // yellow-800
+        return Colors.white; // White text for better visibility
       case 'confirmed':
-        return const Color(0xFF1E40AF); // blue-800
+        return Colors.white; // White text for better visibility
       case 'completed':
-        return const Color(0xFF166534); // green-800
+        return Colors.white; // White text for better visibility
       case 'cancelled':
-        return const Color(0xFF1F2937); // gray-800
+        return Colors.white; // White text for better visibility
+      case 'scheduled':
+        return Colors.white; // White text for better visibility
       default:
-        return const Color(0xFF1F2937); // gray-800
+        return Colors.white; // White text for better visibility
     }
   }
 
@@ -489,10 +493,21 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                       color: Colors.white, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  location ?? 'No location specified',
-                  style: const TextStyle(color: Colors.white),
-                ),
+                if (location != null &&
+                    location.isNotEmpty &&
+                    location != 'No location specified')
+                  ClickableContactInfo(
+                    text: location,
+                    type: ContactType.location,
+                    showIcon: false,
+                    textColor: Colors.blue[400],
+                    fontSize: 14,
+                  )
+                else
+                  const Text(
+                    'No location specified',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 const SizedBox(height: 16),
                 const Text(
                   'Date:',
@@ -685,7 +700,13 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
     final statusColor = _getStatusColor(activityStatus);
     final statusTextColor = _getStatusTextColor(activityStatus);
 
-    return ui.Card(
+    return Card(
+      color: const Color(0xFF1A1A1A),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF2E2E2E), width: 1),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
@@ -725,7 +746,7 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                   const Spacer(),
                   Text(
                     dateDisplay,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14),
                   ),
                 ],
               ),
@@ -735,18 +756,26 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
               if (location != null && location.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
+                    const Icon(Icons.location_on,
+                        size: 16, color: Color(0xFF9E9E9E)),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
                         location,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                        style: const TextStyle(
+                          color: Color(0xFFB0B0B0),
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ],
@@ -756,7 +785,11 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                 const SizedBox(height: 8),
                 Text(
                   description,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  style: const TextStyle(
+                    color: Color(0xFFB0B0B0),
+                    fontSize: 14,
+                    height: 1.3,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -765,11 +798,16 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.attach_money, size: 16, color: Colors.grey[600]),
+                    const Icon(Icons.attach_money,
+                        size: 16, color: Color(0xFF9E9E9E)),
                     const SizedBox(width: 4),
                     Text(
                       rateInfo,
-                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      style: const TextStyle(
+                        color: Color(0xFFB0B0B0),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
@@ -793,34 +831,36 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
           final isSmallScreen = constraints.maxWidth < 800;
           final isMediumScreen = constraints.maxWidth < 1200;
 
-          return Column(
-            children: [
-              // Header with title and add button
-              _buildHeader(isSmallScreen),
-              const SizedBox(height: 24),
+          return isSmallScreen
+              ? _buildMobileLayout(
+                  filteredActivities, isSmallScreen, isMediumScreen)
+              : Column(
+                  children: [
+                    // Header with title and add button
+                    _buildHeader(isSmallScreen),
+                    SizedBox(height: isSmallScreen ? 16 : 20),
 
-              // Filters section
-              _buildFilters(isSmallScreen, isMediumScreen),
-              const SizedBox(height: 16),
+                    // Filters section
+                    _buildFilters(isSmallScreen, isMediumScreen),
+                    SizedBox(height: isSmallScreen ? 8 : 12),
 
-              // Results count and clear filters
-              _buildResultsHeader(filteredActivities.length, isSmallScreen),
-              const SizedBox(height: 16),
+                    // Results count and clear filters
+                    _buildResultsHeader(
+                        filteredActivities.length, isSmallScreen),
+                    SizedBox(height: isSmallScreen ? 8 : 12),
 
-              // Activities List or Table
-              Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _error != null
-                        ? Center(child: Text(_error!))
-                        : filteredActivities.isEmpty
-                            ? _buildEmptyState()
-                            : isSmallScreen
-                                ? _buildMobileList(filteredActivities)
-                                : _buildDesktopTable(filteredActivities),
-              ),
-            ],
-          );
+                    // Activities List or Table
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _error != null
+                              ? Center(child: Text(_error!))
+                              : filteredActivities.isEmpty
+                                  ? _buildEmptyState()
+                                  : _buildDesktopTable(filteredActivities),
+                    ),
+                  ],
+                );
         },
       ),
     );
@@ -878,73 +918,132 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
   Widget _buildFilters(bool isSmallScreen, bool isMediumScreen) {
     return ui.Card(
       child: Padding(
-        padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+        padding: EdgeInsets.all(isSmallScreen ? 8 : 12),
         child: Column(
           children: [
-            // Search
-            TextField(
-              onChanged: (value) => setState(() => _searchTerm = value),
-              decoration: InputDecoration(
-                hintText: 'Search activities...',
-                prefixIcon: const Icon(Icons.search, color: AppTheme.goldColor),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Colors.grey),
+            // Compact search and filter toggle
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 40,
+                    child: TextField(
+                      onChanged: (value) => setState(() => _searchTerm = value),
+                      decoration: InputDecoration(
+                        hintText: 'Search activities...',
+                        prefixIcon: const Icon(Icons.search,
+                            color: AppTheme.goldColor, size: 20),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide:
+                              const BorderSide(color: AppTheme.goldColor),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFF2A2A2A),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                      ),
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      cursorColor: AppTheme.goldColor,
+                      cursorWidth: 2.0,
+                      showCursor: true,
+                    ),
+                  ),
                 ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: AppTheme.goldColor),
+                const SizedBox(width: 12),
+                // Filter toggle button
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      setState(() => _filtersExpanded = !_filtersExpanded),
+                  icon: Icon(
+                    _filtersExpanded ? Icons.expand_less : Icons.tune,
+                    color: AppTheme.goldColor,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _filtersExpanded ? 'Hide' : 'Filters',
+                    style: const TextStyle(
+                        color: AppTheme.goldColor, fontSize: 14),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppTheme.goldColor),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    minimumSize: const Size(0, 40),
+                  ),
                 ),
-                filled: true,
-                fillColor: const Color(0xFF2A2A2A),
-              ),
-              style: const TextStyle(color: Colors.white),
-              // Add cursor styling for better visibility
-              cursorColor: AppTheme.goldColor,
-              cursorWidth: 2.0,
-              showCursor: true,
+              ],
             ),
-            SizedBox(height: isSmallScreen ? 12 : 16),
 
-            // Filter Row - Responsive layout
-            if (isSmallScreen)
-              Column(
-                children: [
-                  _buildFilterDropdown('Activity Type', _typeFilter, _types,
-                      (value) => setState(() => _typeFilter = value!)),
-                  const SizedBox(height: 12),
-                  _buildFilterDropdown('Status', _statusFilter, _statuses,
-                      (value) => setState(() => _statusFilter = value!)),
-                  const SizedBox(height: 12),
-                  _buildFilterDropdown('Sort By', _sortBy, _sortOptions,
-                      (value) => setState(() => _sortBy = value!)),
-                ],
-              )
-            else
-              Row(
-                children: [
-                  Expanded(
-                      child: _buildFilterDropdown(
-                          'Activity Type',
-                          _typeFilter,
-                          _types,
-                          (value) => setState(() => _typeFilter = value!))),
-                  const SizedBox(width: 16),
-                  Expanded(
-                      child: _buildFilterDropdown(
-                          'Status',
-                          _statusFilter,
-                          _statuses,
-                          (value) => setState(() => _statusFilter = value!))),
-                  const SizedBox(width: 16),
-                  Expanded(
-                      child: _buildFilterDropdown(
-                          'Sort By',
-                          _sortBy,
-                          _sortOptions,
-                          (value) => setState(() => _sortBy = value!))),
-                ],
-              ),
+            // Expandable filters section
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              height: _filtersExpanded ? null : 0,
+              child: _filtersExpanded
+                  ? Column(
+                      children: [
+                        const SizedBox(height: 12),
+                        // Filter Row - Responsive layout
+                        if (isSmallScreen)
+                          Column(
+                            children: [
+                              _buildFilterDropdown(
+                                  'Activity Type',
+                                  _typeFilter,
+                                  _types,
+                                  (value) =>
+                                      setState(() => _typeFilter = value!)),
+                              const SizedBox(height: 8),
+                              _buildFilterDropdown(
+                                  'Status',
+                                  _statusFilter,
+                                  _statuses,
+                                  (value) =>
+                                      setState(() => _statusFilter = value!)),
+                              const SizedBox(height: 8),
+                              _buildFilterDropdown(
+                                  'Sort By',
+                                  _sortBy,
+                                  _sortOptions,
+                                  (value) => setState(() => _sortBy = value!)),
+                            ],
+                          )
+                        else
+                          Row(
+                            children: [
+                              Expanded(
+                                  child: _buildFilterDropdown(
+                                      'Activity Type',
+                                      _typeFilter,
+                                      _types,
+                                      (value) => setState(
+                                          () => _typeFilter = value!))),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                  child: _buildFilterDropdown(
+                                      'Status',
+                                      _statusFilter,
+                                      _statuses,
+                                      (value) => setState(
+                                          () => _statusFilter = value!))),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                  child: _buildFilterDropdown(
+                                      'Sort By',
+                                      _sortBy,
+                                      _sortOptions,
+                                      (value) =>
+                                          setState(() => _sortBy = value!))),
+                            ],
+                          ),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),
@@ -954,7 +1053,7 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
   Widget _buildFilterDropdown(String label, String value, List<String> items,
       Function(String?) onChanged) {
     return DropdownButtonFormField<String>(
-      value: items.contains(value)
+      initialValue: items.contains(value)
           ? value
           : (items.isNotEmpty ? items.first : null),
       decoration: InputDecoration(
@@ -1049,12 +1148,49 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
     );
   }
 
-  Widget _buildMobileList(List<dynamic> activities) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(0),
-      itemCount: activities.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 12),
-      itemBuilder: (context, index) => _buildActivityCard(activities[index]),
+  Widget _buildMobileLayout(List<dynamic> filteredActivities,
+      bool isSmallScreen, bool isMediumScreen) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(child: Text(_error!));
+    }
+
+    return CustomScrollView(
+      slivers: [
+        // Header
+        SliverToBoxAdapter(
+          child: Column(
+            children: [
+              _buildHeader(isSmallScreen),
+              SizedBox(height: isSmallScreen ? 16 : 20),
+              _buildFilters(isSmallScreen, isMediumScreen),
+              SizedBox(height: isSmallScreen ? 8 : 12),
+              _buildResultsHeader(filteredActivities.length, isSmallScreen),
+              SizedBox(height: isSmallScreen ? 8 : 12),
+            ],
+          ),
+        ),
+        // Activities List
+        if (filteredActivities.isEmpty)
+          SliverToBoxAdapter(child: _buildEmptyState())
+        else
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index == filteredActivities.length - 1 ? 20 : 12,
+                  ),
+                  child: _buildActivityCard(filteredActivities[index]),
+                );
+              },
+              childCount: filteredActivities.length,
+            ),
+          ),
+      ],
     );
   }
 
@@ -1081,38 +1217,39 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
             child: const Row(
               children: [
                 Expanded(
-                    flex: 2,
+                    flex: 3,
                     child: Text('Client',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.goldColor))),
                 Expanded(
-                    flex: 1,
+                    flex: 2,
                     child: Text('Type',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.goldColor))),
                 Expanded(
-                    flex: 1,
+                    flex: 2,
                     child: Text('Date',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.goldColor))),
                 Expanded(
-                    flex: 1,
+                    flex: 2,
                     child: Text('Location',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.goldColor))),
                 Expanded(
-                    flex: 1,
+                    flex: 2,
                     child: Text('Status',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.goldColor))),
-                SizedBox(
-                    width: 100,
+                Expanded(
+                    flex: 1,
                     child: Text('Actions',
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: AppTheme.goldColor))),
@@ -1157,7 +1294,7 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
         child: Row(
           children: [
             Expanded(
-              flex: 2,
+              flex: 3,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1207,12 +1344,12 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
               ),
             ),
             Expanded(
-              flex: 1,
+              flex: 2,
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
                     color: typeColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
@@ -1221,7 +1358,7 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                     typeName,
                     style: TextStyle(
                         color: typeColor,
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w500),
                     textAlign: TextAlign.center,
                   ),
@@ -1229,7 +1366,7 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
               ),
             ),
             Expanded(
-              flex: 1,
+              flex: 2,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1237,29 +1374,33 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                     _formatDate(activity is Job
                         ? activity.date
                         : activity.date?.toString() ?? ''),
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   if (_getActivityTime(activity) != null)
                     Text(
                       _getActivityTime(activity)!,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                 ],
               ),
             ),
             Expanded(
-              flex: 1,
+              flex: 2,
               child: Text(
                 activity.location ?? 'TBD',
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             Expanded(
-              flex: 1,
+              flex: 2,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
@@ -1268,20 +1409,23 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                   activityStatus.toUpperCase(),
                   style: TextStyle(
                       color: statusColor,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: FontWeight.w500),
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),
-            SizedBox(
-              width: 100,
+            Expanded(
+              flex: 1,
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     icon: const Icon(Icons.edit,
-                        color: AppTheme.goldColor, size: 18),
+                        color: AppTheme.goldColor, size: 16),
                     onPressed: () async {
                       // Navigate to edit page based on activity type
                       bool? result;
@@ -1342,11 +1486,16 @@ class _AllActivitiesPageState extends State<AllActivitiesPage> {
                         _loadActivities();
                       }
                     },
+                    padding: const EdgeInsets.all(4),
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                   ),
-                  const SizedBox(width: 4),
                   IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red, size: 18),
+                    icon: const Icon(Icons.delete, color: Colors.red, size: 16),
                     onPressed: () => _showDeleteConfirmation(activity),
+                    padding: const EdgeInsets.all(4),
+                    constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
                   ),
                 ],
               ),

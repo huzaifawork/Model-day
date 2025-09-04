@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Test Document - High Contrast</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #ffffff;
+            color: #000000;
+            margin: 0;
+            padding: 40px;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .document {
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border: 2px solid #000000;
+        }
+
+        .header {
+            border-bottom: 3px solid #000000;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .field-row {
+            display: flex;
+            margin-bottom: 20px;
+            align-items: flex-start;
+        }
+        
+        .field-label {
+            font-weight: bold;
+            color: #cccccc;
+            min-width: 120px;
+            margin-right: 20px;
+            font-size: 16px;
+        }
+        
+        .field-value {
+            color: #ffffff;
+            font-size: 16px;
+            line-height: 1.5;
+            flex: 1;
+        }
+        
+        .info-section {
+            background: #333333;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 25px 0;
+            border-left: 4px solid #ff6b35;
+        }
+        
+        .info-title {
+            font-weight: bold;
+            color: #ff6b35;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .info-details {
+            line-height: 1.8;
+            color: #ffffff;
+        }
+        
+        .contact-section {
+            background: #2a2a2a;
+            border: 1px solid #404040;
+            border-radius: 8px;
+            padding: 25px;
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        .agent-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #ff6b35;
+            margin-bottom: 10px;
+        }
+        
+        .agent-title {
+            color: #cccccc;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .contact-info {
+            color: #ffffff;
+            line-height: 1.6;
+        }
+        
+        .company-info {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #404040;
+            color: #cccccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="document">
+        <div class="header">
+            <h1 style="margin: 0; color: #ff6b35; font-size: 28px;">Model Booking Details</h1>
+        </div>
+        
+        <div class="field-row">
+            <div class="field-label">Client</div>
+            <div class="field-value">SAMSUNG</div>
+        </div>
+        
+        <div class="field-row">
+            <div class="field-label">Contact</div>
+            <div class="field-value">Adrien Gras | IMM BELGIUM</div>
+        </div>
+        
+        <div class="field-row">
+            <div class="field-label">Agent</div>
+            <div class="field-value">Sarah Johnson</div>
+        </div>
+        
+        <div class="info-section">
+            <div class="info-title">Job details :</div>
+            <div class="info-details">
+                Title : Samsung Galaxy Book 5<br>
+                Media : All electronic, digital, All print, Online<br>
+                Usage Period : 1year<br>
+                Release country : Global<br>
+                Exclusivity : Non<br>
+                Shooting Schedule : 2nd week of May 2025<br>
+                Shooting location : TBC<br>
+                Budget : 6000 euros gross
+            </div>
+        </div>
+        
+        <div class="contact-section">
+            <div style="margin-bottom: 20px; color: #cccccc;">Sent by Sarah Johnson</div>
+            <div class="agent-name">Sarah Johnson</div>
+            <div class="agent-title">Model Agent</div>
+            <div class="contact-info">
+                +48 794 939 555<br><br>
+                Uncover Models<br>
+                Raclawicka 99/03, Warsaw Poland
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-capture functionality
+        window.addEventListener('load', function() {
+            console.log('Test document loaded successfully');
+            console.log('This document contains all the fields needed for OCR testing:');
+            console.log('- Client: SAMSUNG');
+            console.log('- Contact: Adrien Gras | IMM BELGIUM');
+            console.log('- Agent: Sarah Johnson');
+            console.log('- Job details with title, media, usage period, etc.');
+            console.log('- Budget: 6000 euros');
+            console.log('- Date: 2nd week of May 2025');
+            console.log('- Location: TBC');
+        });
+    </script>
+</body>
+</html>

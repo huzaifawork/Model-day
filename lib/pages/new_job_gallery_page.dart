@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
@@ -5,6 +6,8 @@ import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/services/job_gallery_service.dart';
 import 'package:new_flutter/services/firebase_storage_service.dart';
 import 'package:new_flutter/services/logger_service.dart';
+import 'package:new_flutter/models/job_gallery.dart';
+import 'package:new_flutter/widgets/base64_image_widget.dart';
 
 class NewJobGalleryPage extends StatefulWidget {
   const NewJobGalleryPage({super.key});
@@ -25,6 +28,20 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
   DateTime _selectedDate = DateTime.now();
   final List<XFile> _selectedImages = [];
   bool _isSaving = false;
+  JobGallery? _editingGallery; // Track if we're editing an existing gallery
+  List<String> _existingImageUrls = []; // Store existing image URLs for editing
+
+  @override
+  void initState() {
+    super.initState();
+    // Handle edit mode - check for gallery argument after the widget is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is JobGallery) {
+        _loadGalleryForEdit(args);
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -37,23 +54,75 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
     super.dispose();
   }
 
+  void _loadGalleryForEdit(JobGallery gallery) {
+    LoggerService.info('📝 Loading gallery for edit: ${gallery.name}');
+    setState(() {
+      _editingGallery = gallery;
+      _nameController.text = gallery.name;
+      _photographerController.text = gallery.photographerName ?? '';
+      _locationController.text = gallery.location ?? '';
+      _hairMakeupController.text = gallery.hairMakeup ?? '';
+      _stylistController.text = gallery.stylist ?? '';
+      _descriptionController.text = gallery.description ?? '';
+      _selectedDate = gallery.date ?? DateTime.now();
+
+      // Parse existing images
+      if (gallery.images != null && gallery.images!.isNotEmpty) {
+        try {
+          final String imagesStr = gallery.images!;
+          if (imagesStr.contains(',')) {
+            _existingImageUrls = imagesStr
+                .split(',')
+                .map((url) => url.trim())
+                .where((url) => url.isNotEmpty)
+                .toList();
+          } else if (imagesStr.isNotEmpty) {
+            _existingImageUrls = [imagesStr];
+          }
+          LoggerService.info(
+              '📸 Loaded ${_existingImageUrls.length} existing images for edit');
+          for (int i = 0; i < _existingImageUrls.length; i++) {
+            LoggerService.info(
+                '📸 Image $i: ${_existingImageUrls[i].substring(0, 100)}...');
+          }
+        } catch (e) {
+          LoggerService.error('❌ Error parsing existing images: $e');
+        }
+      }
+    });
+  }
+
   Future<void> _pickImages() async {
     try {
+      LoggerService.info('📷 Starting image picker...');
       final ImagePicker picker = ImagePicker();
       final List<XFile> images = await picker.pickMultiImage(
-        imageQuality: 80,
-        maxWidth: 1920,
-        maxHeight: 1080,
+        imageQuality: 65, // BALANCED: Good quality but still fast upload
+        maxWidth: 1400, // BALANCED: Good resolution but compressed
+        maxHeight: 800, // BALANCED: Good resolution but compressed
       );
 
       if (images.isNotEmpty) {
+        LoggerService.info(
+            '📷 Selected ${images.length} images with BALANCED compression (65% quality, 1400x800) for fast upload with good quality');
+
+        // Log file sizes for performance tracking
+        for (int i = 0; i < images.length; i++) {
+          final bytes = await images[i].readAsBytes();
+          final sizeKB = (bytes.length / 1024).round();
+          LoggerService.info('📊 Image ${i + 1}: ${sizeKB}KB (compressed)');
+        }
+
         setState(() {
           _selectedImages.addAll(images);
         });
-        LoggerService.info('Selected ${images.length} images');
+        LoggerService.info(
+            '✅ Added ${images.length} QUALITY-OPTIMIZED images to gallery (Total: ${_selectedImages.length}) - FAST + GOOD QUALITY');
+      } else {
+        LoggerService.info('📷 No images selected');
       }
     } catch (e) {
-      LoggerService.error('Error picking images: $e');
+      LoggerService.error('❌ Error picking images: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -66,9 +135,68 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
   }
 
   void _removeImage(int index) {
+    LoggerService.info(
+        '🗑️ Removing image at index $index (${_selectedImages.length - 1} remaining)');
     setState(() {
       _selectedImages.removeAt(index);
     });
+  }
+
+  /// ULTRA-FAST parallel upload method for gallery images only
+  Future<List<String>> _uploadGalleryImagesParallel(
+      List<XFile> imageFiles, String galleryId) async {
+    LoggerService.info(
+        '🚀 Starting ULTRA-FAST PARALLEL upload of ${imageFiles.length} images');
+
+    // Create upload futures for MAXIMUM parallel processing
+    final uploadFutures = <Future<String?>>[];
+
+    for (int i = 0; i < imageFiles.length; i++) {
+      // Start ALL uploads immediately without waiting
+      uploadFutures.add(_uploadSingleGalleryImageFast(
+          imageFiles[i], galleryId, i, imageFiles.length));
+    }
+
+    // Execute ALL uploads simultaneously for maximum speed
+    LoggerService.info(
+        '⚡ FIRING ${uploadFutures.length} SIMULTANEOUS uploads for maximum speed...');
+    final results = await Future.wait(uploadFutures);
+
+    // Filter out null results (failed uploads)
+    final downloadUrls =
+        results.where((url) => url != null).cast<String>().toList();
+
+    LoggerService.info(
+        '🎉 ULTRA-FAST upload complete: ${downloadUrls.length}/${imageFiles.length} successful');
+    return downloadUrls;
+  }
+
+  /// ULTRA-FAST single image upload with minimal overhead
+  Future<String?> _uploadSingleGalleryImageFast(
+      XFile imageFile, String galleryId, int index, int total) async {
+    try {
+      final uploadStartTime = DateTime.now();
+      LoggerService.info('🚀 [${index + 1}/$total] FAST upload starting...');
+
+      // Use existing Firebase service but with unique gallery ID per image for speed
+      final result = await FirebaseStorageService.uploadGalleryImages(
+          [imageFile], '${galleryId}_$index');
+
+      final uploadEndTime = DateTime.now();
+      final uploadDuration = uploadEndTime.difference(uploadStartTime);
+
+      if (result.isNotEmpty) {
+        LoggerService.info(
+            '⚡ [${index + 1}/$total] FAST upload done in ${uploadDuration.inSeconds}s (${(uploadDuration.inMilliseconds / 1000).toStringAsFixed(1)}s)');
+        return result.first;
+      } else {
+        LoggerService.error('❌ [${index + 1}/$total] FAST upload failed');
+        return null;
+      }
+    } catch (e) {
+      LoggerService.error('💥 [${index + 1}/$total] FAST upload error: $e');
+      return null;
+    }
   }
 
   Future<void> _selectDate() async {
@@ -104,7 +232,8 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
       return;
     }
 
-    if (_selectedImages.isEmpty) {
+    // Check if we have images (either new or existing)
+    if (_selectedImages.isEmpty && _existingImageUrls.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select at least one image'),
@@ -118,41 +247,68 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
       _isSaving = true;
     });
 
+    final totalOperationStartTime = DateTime.now();
+    LoggerService.info(
+        '🎬 TOTAL GALLERY SAVE OPERATION START: ${_selectedImages.length} images');
+
     try {
       // Generate a unique gallery ID for organizing images
       final galleryId = DateTime.now().millisecondsSinceEpoch.toString();
 
-      // Upload images to Firebase Storage
+      // Handle images - combine existing and new images
       List<String> imageUrls = [];
-      if (_selectedImages.isNotEmpty) {
-        LoggerService.info('Uploading ${_selectedImages.length} images to Firebase Storage...');
 
-        // Show upload progress
+      // Add existing images if we're editing
+      if (_editingGallery != null) {
+        imageUrls.addAll(_existingImageUrls);
+        LoggerService.info(
+            '📸 Keeping ${_existingImageUrls.length} existing images');
+      }
+
+      // Upload new images if any
+      if (_selectedImages.isNotEmpty) {
+        final uploadStartTime = DateTime.now();
+        LoggerService.info(
+            '🚀 LIGHTNING-FAST GALLERY UPLOAD START: ${_selectedImages.length} images at ${uploadStartTime.toIso8601String()}');
+        LoggerService.info(
+            '⚡ Starting FAST parallel upload of ${_selectedImages.length} quality-optimized images - FAST + GOOD QUALITY!');
+
+        // Simple UI indicator without detailed progress
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const CircularProgressIndicator(strokeWidth: 2),
-                  const SizedBox(width: 16),
-                  Text('Uploading ${_selectedImages.length} images...'),
-                ],
-              ),
-              duration: const Duration(seconds: 30),
+            const SnackBar(
+              content: Text('Uploading images...'),
+              duration: Duration(seconds: 2),
             ),
           );
         }
 
-        // Use FirebaseStorageService directly for gallery images
-        imageUrls = await FirebaseStorageService.uploadGalleryImages(_selectedImages, galleryId);
+        // Use optimized parallel upload for galleries
+        LoggerService.info(
+            '📤 Using optimized parallel upload for gallery images...');
+        final newImageUrls =
+            await _uploadGalleryImagesParallel(_selectedImages, galleryId);
+        imageUrls.addAll(newImageUrls);
 
-        if (imageUrls.length != _selectedImages.length) {
-          throw Exception('Failed to upload all images. Only ${imageUrls.length}/${_selectedImages.length} uploaded.');
+        final uploadEndTime = DateTime.now();
+        final uploadDuration = uploadEndTime.difference(uploadStartTime);
+
+        if (newImageUrls.length != _selectedImages.length) {
+          LoggerService.error(
+              '❌ UPLOAD FAILED: Only ${newImageUrls.length}/${_selectedImages.length} new images uploaded in ${uploadDuration.inSeconds}s');
+          throw Exception(
+              'Failed to upload all new images. Only ${newImageUrls.length}/${_selectedImages.length} uploaded.');
         }
-        LoggerService.info('Successfully uploaded ${imageUrls.length} images');
+
+        LoggerService.info(
+            '🎉 LIGHTNING UPLOAD COMPLETE: ${newImageUrls.length} new images uploaded in ${uploadDuration.inSeconds}s (${(uploadDuration.inMilliseconds / _selectedImages.length).round()}ms per image) - ${uploadDuration.inSeconds < 60 ? "✅ UNDER 1 MINUTE!" : "⚠️ OVER 1 MINUTE"}');
+        LoggerService.info(
+            '⚡ Successfully uploaded ${newImageUrls.length} new images in ${uploadDuration.inSeconds} seconds');
       }
 
       final imagesJson = imageUrls.join(',');
+      LoggerService.info(
+          '📝 Preparing gallery data with ${imageUrls.length} image URLs');
 
       final galleryData = {
         'name': _nameController.text.trim(),
@@ -166,14 +322,42 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
         'gallery_id': galleryId,
       };
 
-      final result = await JobGalleryService.create(galleryData);
+      // Save or update gallery
+      final dbSaveStartTime = DateTime.now();
+      JobGallery? result;
+
+      if (_editingGallery != null) {
+        // Update existing gallery
+        LoggerService.info(
+            '💾 Updating existing gallery: "${_nameController.text.trim()}"');
+        result =
+            await JobGalleryService.update(_editingGallery!.id!, galleryData);
+      } else {
+        // Create new gallery
+        LoggerService.info(
+            '💾 Creating new gallery: "${_nameController.text.trim()}"');
+        result = await JobGalleryService.create(galleryData);
+      }
+
+      final dbSaveEndTime = DateTime.now();
+      final dbSaveDuration = dbSaveEndTime.difference(dbSaveStartTime);
 
       if (result != null && mounted) {
-        LoggerService.info('Gallery created successfully: ${result.name}');
+        final totalOperationEndTime = DateTime.now();
+        final totalOperationDuration =
+            totalOperationEndTime.difference(totalOperationStartTime);
+
+        LoggerService.info(
+            '✅ Gallery saved to database in ${dbSaveDuration.inMilliseconds}ms: ${result.name}');
+        LoggerService.info(
+            '🎉 TOTAL LIGHTNING OPERATION COMPLETE in ${totalOperationDuration.inSeconds}s (${totalOperationDuration.inMilliseconds}ms) - ${totalOperationDuration.inSeconds < 60 ? "🚀 MISSION ACCOMPLISHED: UNDER 1 MINUTE!" : "⚠️ OVER TARGET TIME"}');
+
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Gallery created successfully!'),
+          SnackBar(
+            content: Text(_editingGallery != null
+                ? 'Gallery updated successfully!'
+                : 'Gallery created successfully!'),
             backgroundColor: AppTheme.successColor,
           ),
         );
@@ -182,7 +366,12 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
         throw Exception('Failed to create gallery');
       }
     } catch (e) {
-      LoggerService.error('Error creating gallery: $e');
+      final totalOperationEndTime = DateTime.now();
+      final totalOperationDuration =
+          totalOperationEndTime.difference(totalOperationStartTime);
+
+      LoggerService.error(
+          '❌ GALLERY OPERATION FAILED after ${totalOperationDuration.inSeconds}s: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -228,7 +417,9 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
                         if (constraints.maxWidth < 300) fontSize = 20;
 
                         return Text(
-                          'Create New Gallery',
+                          _editingGallery != null
+                              ? 'Edit Gallery'
+                              : 'Create New Gallery',
                           style: TextStyle(
                             fontSize: fontSize,
                             fontWeight: FontWeight.bold,
@@ -461,7 +652,7 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
                       },
                     ),
                     const SizedBox(height: 20),
-                    if (_selectedImages.isEmpty)
+                    if (_selectedImages.isEmpty && _existingImageUrls.isEmpty)
                       Container(
                         height: 200,
                         width: double.infinity,
@@ -704,6 +895,8 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
   }
 
   Widget _buildImageGrid() {
+    LoggerService.info(
+        '🖼️ _buildImageGrid() called with ${_selectedImages.length} new + ${_existingImageUrls.length} existing images');
     return LayoutBuilder(
       builder: (context, constraints) {
         // Adjust grid columns based on available width
@@ -723,61 +916,160 @@ class _NewJobGalleryPageState extends State<NewJobGalleryPage> {
             mainAxisSpacing: 12,
             childAspectRatio: 1,
           ),
-          itemCount: _selectedImages.length,
+          itemCount: _selectedImages.length + _existingImageUrls.length,
           itemBuilder: (context, index) {
-            final image = _selectedImages[index];
-            return Stack(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: AppTheme.surfaceColorLight,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      image
-                          .path, // This would need proper file handling in production
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: AppTheme.surfaceColorLight,
-                          child: const Icon(
-                            Icons.image,
-                            color: Colors.grey,
-                            size: 32,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: GestureDetector(
-                    onTap: () => _removeImage(index),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: AppTheme.errorColor,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
+            // Show existing images first, then new images
+            if (index < _existingImageUrls.length) {
+              // Existing image
+              final imageUrl = _existingImageUrls[index];
+
+              return _buildExistingImageCard(imageUrl, index);
+            } else {
+              // New image
+              final newImageIndex = index - _existingImageUrls.length;
+              final image = _selectedImages[newImageIndex];
+
+              return _buildNewImageCard(image, newImageIndex);
+            }
           },
         );
       },
     );
+  }
+
+  Widget _buildExistingImageCard(String imageUrl, int index) {
+    return Stack(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: AppTheme.surfaceColorLight,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Base64ImageWidget(
+              imageUrl: imageUrl,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              placeholder: Container(
+                color: AppTheme.surfaceColorLight,
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    color: AppTheme.goldColor,
+                    strokeWidth: 2,
+                  ),
+                ),
+              ),
+              errorWidget: Container(
+                color: AppTheme.surfaceColorLight,
+                child: const Icon(
+                  Icons.image,
+                  color: Colors.grey,
+                  size: 32,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Remove button for existing images
+        Positioned(
+          top: 8,
+          right: 8,
+          child: GestureDetector(
+            onTap: () => _removeExistingImage(index),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: AppTheme.errorColor,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNewImageCard(XFile image, int index) {
+    return Stack(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: AppTheme.surfaceColorLight,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: FutureBuilder<Uint8List>(
+              future: image.readAsBytes(),
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  return Image.memory(
+                    snapshot.data!,
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                  );
+                } else if (snapshot.hasError) {
+                  return Container(
+                    color: AppTheme.surfaceColorLight,
+                    child: const Icon(
+                      Icons.image,
+                      color: Colors.grey,
+                      size: 32,
+                    ),
+                  );
+                } else {
+                  return Container(
+                    color: AppTheme.surfaceColorLight,
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        color: AppTheme.goldColor,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  );
+                }
+              },
+            ),
+          ),
+        ),
+
+        // Remove button for new images
+        Positioned(
+          top: 8,
+          right: 8,
+          child: GestureDetector(
+            onTap: () => _removeImage(index),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: AppTheme.errorColor,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _removeExistingImage(int index) {
+    LoggerService.info('🗑️ Removing existing image at index $index');
+    setState(() {
+      _existingImageUrls.removeAt(index);
+    });
   }
 }

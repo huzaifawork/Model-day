@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import '../services/auth_service.dart';
 import '../models/job.dart';
 import '../models/casting.dart';
 import '../models/test.dart';
@@ -12,6 +14,8 @@ import '../models/option.dart';
 import '../models/direct_booking.dart';
 import '../models/direct_options.dart';
 import '../models/polaroid.dart';
+import '../models/ai_job.dart';
+import '../models/agent.dart';
 import '../services/jobs_service.dart';
 import '../services/events_service.dart';
 import '../services/on_stay_service.dart';
@@ -20,7 +24,10 @@ import '../services/options_service.dart';
 import '../services/direct_bookings_service.dart';
 import '../services/direct_options_service.dart';
 import '../services/polaroids_service.dart';
+import '../services/ai_jobs_service.dart';
+import '../services/agents_service.dart';
 import '../theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -37,6 +44,8 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _isLoading = true;
   String? _error;
   Map<DateTime, List<dynamic>> _events = {};
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
 
   // Performance optimization flags
   bool _isDisposed = false;
@@ -47,13 +56,92 @@ class _CalendarPageState extends State<CalendarPage> {
     super.initState();
     debugPrint('📅 CalendarPage.initState() - Calendar page initialized!');
     _selectedDay = _focusedDay;
+    _loadAgents();
     _loadEvents();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
   void dispose() {
     _isDisposed = true;
     super.dispose();
+  }
+
+  /// Helper method to get all date keys for a date range (inclusive)
+  List<DateTime> _getDateRangeKeys(DateTime startDate, DateTime? endDate) {
+    final List<DateTime> dateKeys = [];
+    final start = DateTime(startDate.year, startDate.month, startDate.day);
+
+    if (endDate == null) {
+      // Single day event
+      dateKeys.add(start);
+    } else {
+      // Multi-day event - include all days from start to end (inclusive)
+      final end = DateTime(endDate.year, endDate.month, endDate.day);
+      DateTime current = start;
+
+      while (current.isBefore(end) || current.isAtSameMomentAs(end)) {
+        dateKeys.add(current);
+        current = current.add(const Duration(days: 1));
+      }
+    }
+
+    return dateKeys;
+  }
+
+  /// Get events for calendar - includes events where user is model, agent, or creator
+  Future<List<Event>> _getEventsForCalendar() async {
+    try {
+      final authService = context.read<AuthService>();
+      final currentUser = authService.currentUser;
+      final currentUserEmail = currentUser?.email;
+
+      if (currentUserEmail == null) {
+        debugPrint('📅 No current user email found for calendar events');
+        return [];
+      }
+
+      debugPrint('📅 Loading calendar events for user: $currentUserEmail');
+      final rawDocuments = await EventsService().getEventsWithRawData();
+      debugPrint('📅 Total events fetched for calendar: ${rawDocuments.length}');
+
+      // Filter events where current user is involved (model, agent, or creator)
+      final relevantDocuments = rawDocuments.where((doc) {
+        final modelEmail = doc['model_email']?.toString().toLowerCase();
+        final agentEmail = doc['agent_email']?.toString().toLowerCase();
+        final creatorEmail = doc['creator_email']?.toString().toLowerCase();
+        final userEmail = currentUserEmail.toLowerCase();
+
+        return modelEmail == userEmail || 
+               agentEmail == userEmail || 
+               creatorEmail == userEmail;
+      }).toList();
+
+      debugPrint('📅 Relevant events for calendar: ${relevantDocuments.length}');
+
+      // Convert to Event objects
+      final events = relevantDocuments.map<Event>((doc) => Event.fromJson(doc)).toList();
+      
+      debugPrint('📅 Calendar events loaded: ${events.length}');
+      return events;
+    } catch (e) {
+      debugPrint('❌ Error loading calendar events: $e');
+      return [];
+    }
   }
 
   Future<void> _loadEvents() async {
@@ -81,13 +169,14 @@ class _CalendarPageState extends State<CalendarPage> {
         JobsService.list().timeout(const Duration(seconds: 10)),
         Casting.list().timeout(const Duration(seconds: 10)),
         Test.list().timeout(const Duration(seconds: 10)),
-        EventsService().getEvents().timeout(const Duration(seconds: 10)),
+        _getEventsForCalendar().timeout(const Duration(seconds: 10)),
         OnStayService.list().timeout(const Duration(seconds: 10)),
         MeetingsService.list().timeout(const Duration(seconds: 10)),
         OptionsService.list().timeout(const Duration(seconds: 10)),
         DirectBookingsService.list().timeout(const Duration(seconds: 10)),
         DirectOptionsService.list().timeout(const Duration(seconds: 10)),
         PolaroidsService.list().timeout(const Duration(seconds: 10)),
+        AiJobsService.list().timeout(const Duration(seconds: 10)),
       ]).timeout(const Duration(seconds: 30));
 
       if (_isDisposed) return;
@@ -102,20 +191,33 @@ class _CalendarPageState extends State<CalendarPage> {
       final directBookings = futures[7] as List<DirectBooking>;
       final directOptions = futures[8] as List<DirectOptions>;
       final polaroids = futures[9] as List<Polaroid>;
+      final aiJobs = futures[10] as List<AiJob>;
 
       // Use more memory-efficient map building
       final events = <DateTime, List<dynamic>>{};
 
-      // Group jobs by date with better error handling
+      // Group jobs by date with better error handling (supports multi-day jobs)
       for (final job in jobs) {
         if (_isDisposed) return;
         try {
-          final date = DateTime.parse(job.date);
-          final dateKey = DateTime(date.year, date.month, date.day);
-          if (events[dateKey] == null) {
-            events[dateKey] = [job];
-          } else {
-            events[dateKey]!.add(job);
+          final startDate = DateTime.parse(job.date);
+          final endDate = job.endDateTime;
+
+          // Get all date keys for this job (single day or multi-day)
+          final dateKeys = _getDateRangeKeys(startDate, endDate);
+
+          // Add job to all relevant dates
+          for (final dateKey in dateKeys) {
+            if (events[dateKey] == null) {
+              events[dateKey] = [job];
+            } else {
+              events[dateKey]!.add(job);
+            }
+          }
+
+          if (endDate != null) {
+            debugPrint(
+                '📅 Multi-day job: ${job.clientName} from ${job.date} to ${job.endDate} (${dateKeys.length} days)');
           }
         } catch (e) {
           debugPrint('Error parsing job date: ${job.date} - $e');
@@ -159,22 +261,32 @@ class _CalendarPageState extends State<CalendarPage> {
         }
       }
 
-      // Group general events by date with disposal check
+      // Group general events by date with disposal check (supports multi-day events)
       for (final event in generalEvents) {
         if (_isDisposed) return;
         try {
           if (event.date != null) {
-            final date = DateTime(
-              event.date!.year,
-              event.date!.month,
-              event.date!.day,
-            );
-            debugPrint(
-                '📅 Processing general event: ${event.clientName} on ${event.date} -> dateKey: $date');
-            if (events[date] == null) {
-              events[date] = [event];
+            final startDate = event.date!;
+            final endDate = event.endDate;
+
+            // Get all date keys for this event (single day or multi-day)
+            final dateKeys = _getDateRangeKeys(startDate, endDate);
+
+            // Add event to all relevant dates
+            for (final dateKey in dateKeys) {
+              if (events[dateKey] == null) {
+                events[dateKey] = [event];
+              } else {
+                events[dateKey]!.add(event);
+              }
+            }
+
+            if (endDate != null) {
+              debugPrint(
+                  '📅 Multi-day general event: ${event.clientName} from ${event.date} to ${event.endDate} (${dateKeys.length} days)');
             } else {
-              events[date]!.add(event);
+              debugPrint(
+                  '📅 Processing general event: ${event.clientName} on ${event.date}');
             }
           } else {
             debugPrint('📅 General event has null date: ${event.clientName}');
@@ -185,22 +297,32 @@ class _CalendarPageState extends State<CalendarPage> {
         }
       }
 
-      // Group OnStay events by date with disposal check
+      // Group OnStay events by date with disposal check (supports multi-day stays)
       for (final onStay in onStays) {
         if (_isDisposed) return;
         try {
           if (onStay.checkInDate != null) {
-            final date = DateTime(
-              onStay.checkInDate!.year,
-              onStay.checkInDate!.month,
-              onStay.checkInDate!.day,
-            );
-            debugPrint(
-                '📅 Processing OnStay event: ${onStay.locationName} on ${onStay.checkInDate} -> dateKey: $date');
-            if (events[date] == null) {
-              events[date] = [onStay];
+            final startDate = onStay.checkInDate!;
+            final endDate = onStay.checkOutDate;
+
+            // Get all date keys for this stay (single day or multi-day)
+            final dateKeys = _getDateRangeKeys(startDate, endDate);
+
+            // Add stay to all relevant dates
+            for (final dateKey in dateKeys) {
+              if (events[dateKey] == null) {
+                events[dateKey] = [onStay];
+              } else {
+                events[dateKey]!.add(onStay);
+              }
+            }
+
+            if (endDate != null) {
+              debugPrint(
+                  '📅 Multi-day OnStay: ${onStay.locationName} from ${onStay.checkInDate} to ${onStay.checkOutDate} (${dateKeys.length} days)');
             } else {
-              events[date]!.add(onStay);
+              debugPrint(
+                  '📅 Processing OnStay event: ${onStay.locationName} on ${onStay.checkInDate}');
             }
           } else {
             debugPrint(
@@ -250,22 +372,32 @@ class _CalendarPageState extends State<CalendarPage> {
         }
       }
 
-      // Group Direct Bookings by date with disposal check
+      // Group Direct Bookings by date with disposal check (supports multi-day bookings)
       for (final directBooking in directBookings) {
         if (_isDisposed) return;
         try {
           if (directBooking.date != null) {
-            final date = DateTime(
-              directBooking.date!.year,
-              directBooking.date!.month,
-              directBooking.date!.day,
-            );
-            debugPrint(
-                '📅 Processing DirectBooking event: ${directBooking.clientName} on ${directBooking.date} -> dateKey: $date');
-            if (events[date] == null) {
-              events[date] = [directBooking];
+            final startDate = directBooking.date!;
+            final endDate = directBooking.endDateTime;
+
+            // Get all date keys for this booking (single day or multi-day)
+            final dateKeys = _getDateRangeKeys(startDate, endDate);
+
+            // Add booking to all relevant dates
+            for (final dateKey in dateKeys) {
+              if (events[dateKey] == null) {
+                events[dateKey] = [directBooking];
+              } else {
+                events[dateKey]!.add(directBooking);
+              }
+            }
+
+            if (endDate != null) {
+              debugPrint(
+                  '📅 Multi-day DirectBooking: ${directBooking.clientName} from ${directBooking.date} to ${directBooking.endDate} (${dateKeys.length} days)');
             } else {
-              events[date]!.add(directBooking);
+              debugPrint(
+                  '📅 Processing DirectBooking event: ${directBooking.clientName} on ${directBooking.date}');
             }
           } else {
             debugPrint(
@@ -319,6 +451,32 @@ class _CalendarPageState extends State<CalendarPage> {
           }
         } catch (e) {
           debugPrint('Error processing Polaroid event date: $e');
+          continue;
+        }
+      }
+
+      // Group AI Jobs by date with disposal check
+      for (final aiJob in aiJobs) {
+        if (_isDisposed) return;
+        try {
+          if (aiJob.date != null) {
+            final date = DateTime(
+              aiJob.date!.year,
+              aiJob.date!.month,
+              aiJob.date!.day,
+            );
+            debugPrint(
+                '📅 Processing AiJob event: ${aiJob.clientName} on ${aiJob.date} -> dateKey: $date');
+            if (events[date] == null) {
+              events[date] = [aiJob];
+            } else {
+              events[date]!.add(aiJob);
+            }
+          } else {
+            debugPrint('📅 AiJob event has null date: ${aiJob.clientName}');
+          }
+        } catch (e) {
+          debugPrint('Error processing AiJob event date: $e');
           continue;
         }
       }
@@ -404,6 +562,8 @@ class _CalendarPageState extends State<CalendarPage> {
                         title: Text(
                           _getEventTitle(event),
                           style: const TextStyle(color: Colors.white),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -611,6 +771,13 @@ class _CalendarPageState extends State<CalendarPage> {
     if (event is Job) return Colors.blue;
     if (event is Casting) return Colors.purple;
     if (event is Test) return Colors.orange;
+    if (event is Polaroid) return Colors.pink;
+    if (event is Meeting) return Colors.amber;
+    if (event is OnStay) return Colors.indigo;
+    if (event is DirectBooking) return Colors.red;
+    if (event is DirectOptions) return Colors.teal;
+    if (event is Option) return Colors.green;
+    if (event is AiJob) return Colors.cyan;
     if (event is Event) {
       switch (event.type) {
         case EventType.job:
@@ -642,6 +809,13 @@ class _CalendarPageState extends State<CalendarPage> {
     if (event is Job) return 'Job';
     if (event is Casting) return 'Casting';
     if (event is Test) return 'Test';
+    if (event is Polaroid) return 'Polaroid';
+    if (event is Meeting) return 'Meeting';
+    if (event is OnStay) return 'On Stay';
+    if (event is DirectBooking) return 'Direct Booking';
+    if (event is DirectOptions) return 'Direct Option';
+    if (event is Option) return 'Option';
+    if (event is AiJob) return 'AI Job';
     if (event is Event) {
       switch (event.type) {
         case EventType.job:
@@ -697,6 +871,8 @@ class _CalendarPageState extends State<CalendarPage> {
       return event.clientName;
     } else if (event is Option) {
       return event.clientName;
+    } else if (event is AiJob) {
+      return event.clientName;
     } else if (event is Event) {
       // Handle generic Event objects (like OTHER events)
       if (event.clientName != null && event.clientName!.isNotEmpty) {
@@ -713,30 +889,60 @@ class _CalendarPageState extends State<CalendarPage> {
 
   String _getTruncatedEventTitle(dynamic event) {
     String title = _getEventTitle(event);
-    // Truncate long titles to fit in calendar cells - be very aggressive
-    if (title.length > 4) {
-      return title.substring(0, 4);
+    // Smart truncation for better readability - allow more characters
+    if (title.length > 8) {
+      // Try to truncate at word boundary or use ellipsis for better clarity
+      if (title.contains(' ') && title.indexOf(' ') <= 6) {
+        return title.substring(0, title.indexOf(' '));
+      }
+      return '${title.substring(0, 6)}..';
     }
     return title;
   }
 
   String _getEventLocation(dynamic event) {
     if (event is Job) {
-      return event.location.isEmpty ? 'No location' : event.location;
+      return event.location.isEmpty ? 'No location specified' : event.location;
     } else if (event is Casting) {
-      return event.location ?? 'No location';
+      return event.location ?? 'No location specified';
     } else if (event is Test) {
-      return event.location ?? 'No location';
+      return event.location ?? 'No location specified';
     } else if (event is Event) {
-      return event.location ?? 'No location';
+      return event.location ?? 'No location specified';
+    } else if (event is DirectBooking) {
+      return event.location?.isEmpty == false
+          ? event.location!
+          : 'No location specified';
+    } else if (event is DirectOptions) {
+      return event.location ?? 'No location specified';
+    } else if (event is Meeting) {
+      return event.location ?? 'No location specified';
+    } else if (event is OnStay) {
+      return event.address?.isEmpty == false
+          ? event.address!
+          : 'No location specified';
+    } else if (event is Polaroid) {
+      return event.location ?? 'No location specified';
+    } else if (event is AiJob) {
+      return event.location ?? 'No location specified';
     }
-    return 'No location';
+    return 'No location specified';
   }
 
   String? _getEventDescription(dynamic event) {
     if (event is Job) {
       return event.notes;
     } else if (event is Event) {
+      return event.notes;
+    } else if (event is DirectBooking) {
+      return event.notes;
+    } else if (event is DirectOptions) {
+      return event.notes;
+    } else if (event is Meeting) {
+      return event.notes;
+    } else if (event is OnStay) {
+      return event.notes;
+    } else if (event is AiJob) {
       return event.notes;
     }
     return null;
@@ -753,19 +959,30 @@ class _CalendarPageState extends State<CalendarPage> {
     // Pre-calculate colors to avoid repeated calculations
     Color? backgroundColor;
     Color textColor = Colors.white;
-    Color eventTextColor = Colors.white;
+    Color? borderColor;
 
     if (isSelected) {
       backgroundColor = AppTheme.goldColor;
       textColor = Colors.black;
-      eventTextColor = Colors.black;
     } else if (isToday) {
       backgroundColor = AppTheme.goldColor.withValues(alpha: 0.7);
       textColor = Colors.black;
-      eventTextColor = Colors.black;
+    } else if (hasEvents) {
+      // Show event-based background color for days with events
+      final primaryEventColor = _getEventColor(events.first);
+      if (events.length == 1) {
+        // Single event - use event color with transparency
+        backgroundColor = primaryEventColor.withValues(alpha: 0.3);
+        borderColor = primaryEventColor.withValues(alpha: 0.8);
+        textColor = Colors.white;
+      } else {
+        // Multiple events - use a mixed color approach
+        backgroundColor = primaryEventColor.withValues(alpha: 0.2);
+        borderColor = primaryEventColor.withValues(alpha: 0.6);
+        textColor = Colors.white;
+      }
     } else if (isOutside) {
       textColor = Colors.white.withValues(alpha: 0.4);
-      eventTextColor = Colors.white.withValues(alpha: 0.4);
     }
 
     // Cache screen width to avoid repeated MediaQuery calls
@@ -811,6 +1028,19 @@ class _CalendarPageState extends State<CalendarPage> {
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(isVerySmall ? 6 : 8),
+        border: borderColor != null
+            ? Border.all(color: borderColor, width: 1.5)
+            : null,
+        // Add subtle shadow for days with events to make them stand out
+        boxShadow: hasEvents && !isSelected && !isToday
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 2,
+                  offset: const Offset(0, 1),
+                ),
+              ]
+            : null,
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.start,
@@ -820,9 +1050,22 @@ class _CalendarPageState extends State<CalendarPage> {
             '${day.day}',
             style: TextStyle(
               color: textColor,
-              fontWeight:
-                  isToday || isSelected ? FontWeight.w600 : FontWeight.normal,
+              fontWeight: isToday || isSelected
+                  ? FontWeight.w700
+                  : hasEvents
+                      ? FontWeight.w600
+                      : FontWeight.normal,
               fontSize: dayFontSize,
+              // Add text shadow for better readability on colored backgrounds
+              shadows: hasEvents && !isSelected && !isToday
+                  ? [
+                      Shadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        offset: const Offset(0.5, 0.5),
+                        blurRadius: 1,
+                      ),
+                    ]
+                  : null,
             ),
           ),
 
@@ -839,33 +1082,61 @@ class _CalendarPageState extends State<CalendarPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       if (events.length == 1) ...[
-                        // Show single event name (truncated)
+                        // Show single event name with appealing styling
                         Flexible(
-                          child: Text(
-                            _getTruncatedEventTitle(events.first),
-                            style: TextStyle(
-                              color: eventTextColor,
-                              fontSize: eventFontSize,
-                              fontWeight: FontWeight.w500,
-                              height: 1.0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 2, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              borderRadius: BorderRadius.circular(3),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.clip,
-                            textAlign: TextAlign.center,
+                            child: Text(
+                              _getTruncatedEventTitle(events.first),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: eventFontSize +
+                                    1, // Slightly larger for better readability
+                                fontWeight: FontWeight.w700,
+                                height: 1.0,
+                                letterSpacing:
+                                    0.3, // Better letter spacing for clarity
+                                // Strong text shadow for maximum appeal and readability
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withValues(alpha: 0.8),
+                                    offset: const Offset(0.5, 0.5),
+                                    blurRadius: 1.5,
+                                  ),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.visible,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ),
                       ] else ...[
-                        // Show event count for multiple events
+                        // Show event count for multiple events with indicator
                         Flexible(
-                          child: Text(
-                            '${events.length}',
-                            style: TextStyle(
-                              color: eventTextColor,
-                              fontSize: eventFontSize,
-                              fontWeight: FontWeight.w600,
-                              height: 1.0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: _getEventColor(events.first)
+                                  .withValues(alpha: 0.8),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            textAlign: TextAlign.center,
+                            child: Text(
+                              '${events.length}',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: eventFontSize,
+                                fontWeight: FontWeight.w700,
+                                height: 1.0,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ),
                       ],
@@ -880,7 +1151,101 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
+  Widget _buildAgentRow(String label, String agentIdOrName) {
+    // Get agent from cache, fallback to creating a dummy agent with the provided name
+    final agent = _agentCache[agentIdOrName] ?? Agent(name: agentIdOrName);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text(
+          '$label:',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(
+              agent.name,
+              style: const TextStyle(color: Colors.white),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => _sendWhatsAppToAgent(agent),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.green,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.chat,
+                  size: 14,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (context.mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   void _showEventDetails(BuildContext context, dynamic event) {
+    // For Option events, use a specialized dialog
+    if (event is Option) {
+      _showOptionDetails(context, event);
+      return;
+    }
+
     // Get event title
     String title = 'Event Details';
     if (event is Job) {
@@ -889,6 +1254,18 @@ class _CalendarPageState extends State<CalendarPage> {
       title = event.clientName ?? 'Casting';
     } else if (event is Test) {
       title = event.clientName ?? 'Test';
+    } else if (event is Polaroid) {
+      title = event.clientName;
+    } else if (event is Meeting) {
+      title = event.clientName;
+    } else if (event is OnStay) {
+      title = event.locationName;
+    } else if (event is DirectBooking) {
+      title = event.clientName;
+    } else if (event is DirectOptions) {
+      title = event.clientName;
+    } else if (event is AiJob) {
+      title = event.clientName;
     } else if (event is Event) {
       title = event.clientName ?? 'Event';
     }
@@ -901,8 +1278,22 @@ class _CalendarPageState extends State<CalendarPage> {
       eventDate = event.date;
     } else if (event is Test) {
       eventDate = event.date;
+    } else if (event is AiJob) {
+      eventDate = event.date;
     } else if (event is Event) {
       eventDate = event.date;
+    } else if (event is DirectBooking) {
+      eventDate = event.date;
+    } else if (event is DirectOptions) {
+      eventDate = event.date;
+    } else if (event is OnStay) {
+      eventDate = event.checkInDate;
+    } else if (event is Meeting) {
+      eventDate = DateTime.tryParse(event.date);
+    } else if (event is Option) {
+      eventDate = DateTime.tryParse(event.date);
+    } else if (event is Polaroid) {
+      eventDate = DateTime.tryParse(event.date);
     }
 
     // Get event location
@@ -913,7 +1304,21 @@ class _CalendarPageState extends State<CalendarPage> {
       location = event.location;
     } else if (event is Test) {
       location = event.location;
+    } else if (event is AiJob) {
+      location = event.location;
     } else if (event is Event) {
+      location = event.location;
+    } else if (event is DirectBooking) {
+      location = event.location;
+    } else if (event is DirectOptions) {
+      location = event.location;
+    } else if (event is OnStay) {
+      location = event.address;
+    } else if (event is Meeting) {
+      location = event.location;
+    } else if (event is Option) {
+      location = event.location;
+    } else if (event is Polaroid) {
       location = event.location;
     }
 
@@ -921,9 +1326,30 @@ class _CalendarPageState extends State<CalendarPage> {
     String? time;
     if (event is Job && event.time != null) {
       time = event.time;
+    } else if (event is Casting && event.startTime != null) {
+      String timeText = event.startTime!;
+      if (event.endTime != null) {
+        timeText += ' - ${event.endTime}';
+      }
+      time = timeText;
+    } else if (event is AiJob && event.time != null) {
+      time = event.time;
     } else if (event is Event && event.startTime != null) {
       time = event.startTime;
+    } else if (event is DirectBooking && event.time != null) {
+      time = event.time;
+    } else if (event is DirectOptions && event.time != null) {
+      time = event.time;
+    } else if (event is OnStay && event.checkInTime != null) {
+      time = event.checkInTime;
+    } else if (event is Meeting && event.time != null) {
+      time = event.time;
+    } else if (event is Option && event.time != null) {
+      time = event.time;
+    } else if (event is Polaroid && event.time != null) {
+      time = event.time;
     }
+    // Note: Test events don't have time fields
 
     // Get event rate
     double? rate;
@@ -931,19 +1357,91 @@ class _CalendarPageState extends State<CalendarPage> {
     if (event is Job) {
       rate = event.rate;
       currency = event.currency;
+    } else if (event is Casting) {
+      rate = event.rate;
+      currency = event.currency;
+    } else if (event is Test) {
+      rate = event.rate;
+      currency = event.currency;
+    } else if (event is AiJob) {
+      rate = event.rate;
+      currency = event.currency;
     } else if (event is Event) {
       rate = event.dayRate;
       currency = event.currency;
+    } else if (event is DirectBooking) {
+      rate = event.rate;
+      currency = event.currency;
+    } else if (event is DirectOptions) {
+      rate = event.rate;
+      currency = event.currency;
+    } else if (event is OnStay) {
+      rate = event.cost;
+      currency = event.currency;
+    } else if (event is Option) {
+      rate = event.rate;
+      currency = event.currency;
+    } else if (event is Polaroid) {
+      rate = event.rate;
+      currency = event.currency;
     }
+    // Note: Meeting events don't have rate fields
 
     // Get event notes/description
     String? notes;
     if (event is Job) {
       notes = event.notes;
+    } else if (event is Casting) {
+      notes = event.description; // Casting uses 'description' field
+    } else if (event is Test) {
+      notes = event.description; // Test uses 'description' field
+    } else if (event is AiJob) {
+      notes = event.notes;
     } else if (event is Event) {
       notes = event.notes;
+    } else if (event is DirectBooking) {
+      notes = event.notes;
+    } else if (event is DirectOptions) {
+      notes = event.notes;
+    } else if (event is OnStay) {
+      notes = _getCleanNotesFromOnStay(event.notes);
+    } else if (event is Meeting) {
+      notes = event.notes;
+    } else if (event is Option) {
+      notes = event.notes;
+    } else if (event is Polaroid) {
+      notes = event.notes;
     }
-    // Note: Casting and Test models don't have notes field
+
+    // Get agent information
+    String? agentId;
+    if (event is Job) {
+      agentId = event.bookingAgent;
+    } else if (event is Casting) {
+      agentId = event.agentId;
+    } else if (event is Test) {
+      agentId = event.agentId;
+    } else if (event is AiJob) {
+      agentId = event.bookingAgent;
+    } else if (event is OnStay) {
+      agentId = event.agentId;
+      // Fallback: try to extract agent ID from notes if agentId is empty
+      if ((agentId == null || agentId.isEmpty) && event.notes != null) {
+        agentId = _getAgentIdFromOnStayNotes(event.notes!);
+      }
+    } else if (event is Meeting) {
+      agentId = event.bookingAgent;
+    } else if (event is Option) {
+      agentId = event.agentId;
+    } else if (event is DirectBooking) {
+      agentId = event.bookingAgent;
+    } else if (event is DirectOptions) {
+      agentId = event.bookingAgent;
+    } else if (event is Polaroid) {
+      agentId = event.bookingAgent;
+    } else if (event is Event) {
+      agentId = event.agentId;
+    }
 
     showDialog(
       context: context,
@@ -953,73 +1451,17 @@ class _CalendarPageState extends State<CalendarPage> {
           title,
           style: const TextStyle(color: Colors.white),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (notes != null) ...[
-              const Text(
-                'Notes:',
-                style:
-                    TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                notes,
-                style: const TextStyle(color: Colors.white),
-              ),
-              const SizedBox(height: 16),
-            ],
-            const Text(
-              'Location:',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildEventDetailsContent(event, eventDate, location,
+                  time, rate, currency, notes, agentId),
             ),
-            const SizedBox(height: 4),
-            Text(
-              location ?? 'No location specified',
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Date:',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              eventDate != null
-                  ? DateFormat('EEEE, MMMM d, y').format(eventDate)
-                  : 'Date not specified',
-              style: const TextStyle(color: Colors.white),
-            ),
-            if (time != null) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'Time:',
-                style:
-                    TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                time,
-                style: const TextStyle(color: Colors.white),
-              ),
-            ],
-            if (rate != null) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'Rate:',
-                style:
-                    TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${currency ?? 'USD'} ${rate.toStringAsFixed(2)}',
-                style: const TextStyle(color: Colors.white),
-              ),
-            ],
-          ],
+          ),
         ),
         actions: [
           TextButton(
@@ -1040,6 +1482,276 @@ class _CalendarPageState extends State<CalendarPage> {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildEventDetailsContent(
+      dynamic event,
+      DateTime? eventDate,
+      String? location,
+      String? time,
+      double? rate,
+      String? currency,
+      String? notes,
+      String? agentId) {
+    List<Widget> details = [];
+
+    // Type
+    details.addAll([
+      _buildDetailRow('Type', _getEventType(event)),
+      const SizedBox(height: 8),
+    ]);
+
+    // Date
+    details.addAll([
+      _buildDetailRow(
+          'Date',
+          eventDate != null
+              ? DateFormat('EEEE, MMMM d, yyyy').format(eventDate)
+              : 'Date not specified'),
+      const SizedBox(height: 8),
+    ]);
+
+    // Time
+    if (time != null) {
+      details.addAll([
+        _buildDetailRow('Time', time),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Location
+    details.addAll([
+      _buildDetailRow(
+          'Location',
+          location != null && location.isNotEmpty
+              ? location
+              : 'No location specified'),
+      const SizedBox(height: 8),
+    ]);
+
+    // Rate
+    if (rate != null && rate > 0) {
+      details.addAll([
+        _buildDetailRow(
+            'Day Rate', '${currency ?? 'USD'} ${rate.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent
+    if (agentId != null && agentId.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', agentId),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    String? status = _getEventStatus(event);
+    if (status != null) {
+      details.addAll([
+        _buildDetailRow('Status', status),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Payment Status
+    String? paymentStatus = _getEventPaymentStatus(event);
+    if (paymentStatus != null) {
+      details.addAll([
+        _buildDetailRow('Payment', paymentStatus),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Notes (at the bottom)
+    if (notes != null && notes.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', notes),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String? _getEventStatus(dynamic event) {
+    if (event is Job) return event.status?.toUpperCase();
+    if (event is DirectBooking) return event.status?.toUpperCase();
+    if (event is DirectOptions) return event.status?.toUpperCase();
+    if (event is OnStay) return event.status.toUpperCase();
+    if (event is Option) return event.status.toUpperCase();
+    if (event is AiJob) return event.status?.toUpperCase();
+    if (event is Event) {
+      return event.status?.toString().split('.').last.toUpperCase();
+    }
+    return null;
+  }
+
+  String? _getEventPaymentStatus(dynamic event) {
+    if (event is Job) return event.paymentStatus?.toUpperCase();
+    if (event is DirectBooking) return event.paymentStatus?.toUpperCase();
+    if (event is DirectOptions) return event.paymentStatus?.toUpperCase();
+    if (event is OnStay) return event.paymentStatus.toUpperCase();
+    if (event is Option) return event.paymentStatus.toUpperCase();
+    if (event is AiJob) return event.paymentStatus?.toUpperCase();
+    if (event is Event) {
+      return event.paymentStatus?.toString().split('.').last.toUpperCase();
+    }
+    return null;
+  }
+
+  void _showOptionDetails(BuildContext context, Option option) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          option.clientName,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildOptionDetails(option),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToEditEvent(option);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildOptionDetails(Option option) {
+    List<Widget> details = [];
+
+    // Type
+    details.addAll([
+      _buildDetailRow('Type', 'Option'),
+      const SizedBox(height: 8),
+    ]);
+
+    // Date
+    try {
+      final date = DateTime.parse(option.date);
+      details.addAll([
+        _buildDetailRow('Date', DateFormat('EEEE, MMMM d, yyyy').format(date)),
+        const SizedBox(height: 8),
+      ]);
+    } catch (e) {
+      details.addAll([
+        _buildDetailRow('Date', option.date),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Time
+    if (option.time != null) {
+      String timeText = option.time!;
+      if (option.endTime != null) {
+        timeText += ' - ${option.endTime}';
+      }
+      details.addAll([
+        _buildDetailRow('Time', timeText),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Location
+    if (option.location != null && option.location!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Location', option.location!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Day Rate
+    if (option.rate != null && option.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Day Rate',
+            '${option.currency ?? 'USD'} ${option.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent
+    if (option.agentId != null && option.agentId!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', option.agentId!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', option.status.toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Payment Status
+    details.addAll([
+      _buildDetailRow('Payment', option.paymentStatus.toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Notes (at the bottom)
+    if (option.notes != null && option.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', option.notes!),
+      ]);
+    }
+
+    return details;
   }
 
   Widget _buildEventCard(dynamic event) {
@@ -1097,11 +1809,15 @@ class _CalendarPageState extends State<CalendarPage> {
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 4),
               Text(
                 _getEventLocation(event),
                 style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               if (_getEventDescription(event) != null) ...[
                 const SizedBox(height: 8),
@@ -1361,6 +2077,30 @@ class _CalendarPageState extends State<CalendarPage> {
       currentPage: '/calendar',
       title: 'Calendar',
       actions: [
+        // Today button to jump to current date
+        ElevatedButton(
+          onPressed: () {
+            final today = DateTime.now();
+            setState(() {
+              _focusedDay = today;
+              _selectedDay = today;
+            });
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.goldColor,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            textStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+          child: const Text('Today'),
+        ),
+        const SizedBox(width: 8),
         IconButton(
           icon: const Icon(Icons.add, color: Colors.white),
           onPressed: () {
@@ -1504,6 +2244,9 @@ class _CalendarPageState extends State<CalendarPage> {
     } else if (event is Option) {
       route = '/new-option';
       arguments = {'existingOption': event};
+    } else if (event is AiJob) {
+      route = '/new-ai-job';
+      arguments = {'existingAiJob': event};
     } else if (event is Event) {
       route = '/new-event';
       arguments = {'existingEvent': event, 'eventType': event.type};
@@ -1516,5 +2259,67 @@ class _CalendarPageState extends State<CalendarPage> {
       // Reload events after editing
       _loadEvents();
     });
+  }
+
+  /// Extract agent ID from OnStay notes field as fallback
+  String? _getAgentIdFromOnStayNotes(String notes) {
+    if (notes.isEmpty) return null;
+
+    final lines = notes.split('\n');
+
+    // First, try to find explicit Agent ID
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Agent ID: ')) {
+        return line.substring('Agent ID: '.length);
+      }
+    }
+
+    // Fallback: try to match agency name against agent names
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Agency: ')) {
+        final agencyName = line.substring('Agency: '.length).trim();
+        if (agencyName.isNotEmpty) {
+          // Try to find an agent with matching name
+          for (final agent in _agentCache.values) {
+            if (agent.name.toLowerCase() == agencyName.toLowerCase()) {
+              return agent.id;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Extract only the "Additional Notes" part from structured OnStay notes
+  String? _getCleanNotesFromOnStay(String? notes) {
+    if (notes == null || notes.isEmpty) {
+      return null;
+    }
+
+    // Split notes by double newlines to get individual sections
+    final sections = notes.split('\n\n');
+
+    for (final section in sections) {
+      final trimmedSection = section.trim();
+      if (trimmedSection.startsWith('Additional Notes: ')) {
+        final cleanNotes = trimmedSection.substring(18).trim();
+        return cleanNotes.isNotEmpty ? cleanNotes : null;
+      }
+    }
+
+    // If no "Additional Notes" section found, check if the entire notes field
+    // contains only unstructured text (no "Field: Value" patterns)
+    final hasStructuredData =
+        notes.contains(RegExp(r'^[A-Za-z\s]+:\s', multiLine: true));
+    if (!hasStructuredData) {
+      // Return the entire notes if it doesn't contain structured data
+      return notes.trim().isNotEmpty ? notes.trim() : null;
+    }
+
+    return null;
   }
 }

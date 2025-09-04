@@ -8,6 +8,8 @@ import 'package:new_flutter/widgets/ui/table.dart' as ui;
 import 'package:new_flutter/widgets/ui/badge.dart' as ui;
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
+import 'package:new_flutter/widgets/clickable_contact_info.dart';
+import 'package:new_flutter/theme/app_theme.dart';
 import 'package:intl/intl.dart';
 
 const jobTypes = [
@@ -240,375 +242,415 @@ class _JobsPageState extends State<JobsPage> {
     }
   }
 
+  String _formatDateRange(Job job) {
+    try {
+      final startDate = DateTime.parse(job.date);
+      String dateText = DateFormat('MMM d, yyyy').format(startDate);
+
+      if (job.isMultiDay && job.endDate != null && job.endDate!.isNotEmpty) {
+        final endDate = DateTime.parse(job.endDate!);
+        dateText += ' - ${DateFormat('MMM d, yyyy').format(endDate)}';
+      }
+
+      return dateText;
+    } catch (e) {
+      return job.date;
+    }
+  }
+
   Widget _buildJobCard(Job job) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        margin: const EdgeInsets.only(bottom: 16),
+        child: InkWell(
+            onTap: () => _showJobPreview(job),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        job.clientName,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        job.type,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey[600],
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: job.status == 'confirmed'
-                        ? Colors.green[100]
-                        : job.status == 'pending'
-                            ? Colors.orange[100]
-                            : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    (job.status ?? 'pending').toUpperCase(),
-                    style: TextStyle(
-                      color: job.status == 'confirmed'
-                          ? Colors.green[800]
-                          : job.status == 'pending'
-                              ? Colors.orange[800]
-                              : Colors.grey[800],
-                      fontWeight: FontWeight.w500,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                // On very small cards, stack items vertically
-                if (constraints.maxWidth < 250) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_today,
-                              size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _formatDate(job.date),
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      if (job.time != null) ...[
-                        Row(
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.access_time,
-                                size: 16, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                job.formatTime() ?? 'No time set',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                            Text(
+                              job.clientName,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              job.type,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: Colors.grey[600],
+                                  ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                      ],
-                      Row(
-                        children: [
-                          const Icon(Icons.attach_money,
-                              size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '${job.currency} ${job.rate.toStringAsFixed(2)}',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
                       ),
-                    ],
-                  );
-                }
-
-                // On larger cards, use wrap layout
-                return Wrap(
-                  spacing: 16,
-                  runSpacing: 8,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.calendar_today,
-                            size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Text(
-                          _formatDate(job.date),
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                    if (job.time != null)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.access_time,
-                              size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(
-                            job.formatTime() ?? 'No time set',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        ],
-                      ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.attach_money,
-                            size: 16, color: Colors.grey),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${job.currency} ${job.rate.toStringAsFixed(2)}',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    job.location,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ),
-              ],
-            ),
-            if (job.notes != null) ...[
-              const SizedBox(height: 16),
-              Text('Notes', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Text(
-                job.notes!,
-                style: Theme.of(context).textTheme.bodyMedium,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            if (job.requirements != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Requirements',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                job.requirements!,
-                style: Theme.of(context).textTheme.bodyMedium,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            if (job.images != null && job.images!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Images', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 100,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: job.images!.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        job.images![index],
-                        height: 100,
-                        width: 100,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            height: 100,
-                            width: 100,
-                            color: Colors.grey[200],
-                            child: const Icon(Icons.error),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-
-            // File attachments section
-            if (job.fileData != null &&
-                job.fileData!.containsKey('files') &&
-                job.fileData!['files'] is List &&
-                (job.fileData!['files'] as List).isNotEmpty) ...[
-              const SizedBox(height: 16),
-              FilePreviewWidget(
-                fileData: job.fileData,
-                showTitle: true,
-                maxFilesToShow: 3,
-              ),
-            ],
-
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                // On small cards, stack payment status and buttons vertically
-                if (constraints.maxWidth < 300) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: job.paymentStatus == 'paid'
+                          color: job.status == 'confirmed'
                               ? Colors.green[100]
-                              : Colors.grey[100],
+                              : job.status == 'pending'
+                                  ? Colors.orange[100]
+                                  : Colors.grey[100],
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          (job.paymentStatus ?? 'unpaid').toUpperCase(),
+                          (job.status ?? 'pending').toUpperCase(),
                           style: TextStyle(
-                            color: job.paymentStatus == 'paid'
+                            color: job.status == 'confirmed'
                                 ? Colors.green[800]
-                                : Colors.grey[800],
+                                : job.status == 'pending'
+                                    ? Colors.orange[800]
+                                    : Colors.grey[800],
                             fontWeight: FontWeight.w500,
                             fontSize: 12,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      // On very small cards, stack items vertically
+                      if (constraints.maxWidth < 250) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.calendar_today,
+                                    size: 16, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _formatDateRange(job),
+                                    style:
+                                        Theme.of(context).textTheme.bodyMedium,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            if (job.time != null) ...[
+                              Row(
+                                children: [
+                                  const Icon(Icons.access_time,
+                                      size: 16, color: Colors.grey),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      job.formatTime() ?? 'No time set',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                            Row(
+                              children: [
+                                const Icon(Icons.attach_money,
+                                    size: 16, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '${job.currency} ${job.rate.toStringAsFixed(2)}',
+                                    style:
+                                        Theme.of(context).textTheme.bodyMedium,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      }
+
+                      // On larger cards, use wrap layout
+                      return Wrap(
+                        spacing: 16,
+                        runSpacing: 8,
                         children: [
-                          Expanded(
-                            child: Button(
-                              variant: ButtonVariant.outline,
-                              onPressed: () async {
-                                final result = await Navigator.pushNamed(
-                                  context,
-                                  '/new-job',
-                                  arguments: job,
-                                );
-                                if (result == true) {
-                                  _loadJobs();
-                                }
-                              },
-                              text: 'Edit',
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.calendar_today,
+                                  size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Text(
+                                _formatDateRange(job),
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Button(
-                              variant: ButtonVariant.destructive,
-                              onPressed: () =>
-                                  _showDeleteConfirmation(context, job),
-                              text: 'Delete',
+                          if (job.time != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.access_time,
+                                    size: 16, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                Text(
+                                  job.formatTime() ?? 'No time set',
+                                  style: Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
                             ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.attach_money,
+                                  size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${job.currency} ${job.rate.toStringAsFixed(2)}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
                           ),
                         ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on,
+                          size: 16, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: job.location.isNotEmpty
+                            ? ClickableContactInfo(
+                                text: job.location,
+                                type: ContactType.location,
+                                showIcon: false,
+                                textColor: Colors.blue[400],
+                                fontSize: 14,
+                              )
+                            : Text(
+                                'No location',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      color: Colors.grey,
+                                    ),
+                              ),
                       ),
                     ],
-                  );
-                }
-
-                // On larger cards, use horizontal layout
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: job.paymentStatus == 'paid'
-                            ? Colors.green[100]
-                            : Colors.grey[100],
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        (job.paymentStatus ?? 'unpaid').toUpperCase(),
-                        style: TextStyle(
-                          color: job.paymentStatus == 'paid'
-                              ? Colors.green[800]
-                              : Colors.grey[800],
-                          fontWeight: FontWeight.w500,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        Button(
-                          variant: ButtonVariant.outline,
-                          onPressed: () async {
-                            final result = await Navigator.pushNamed(
-                              context,
-                              '/new-job',
-                              arguments: job,
-                            );
-                            if (result == true) {
-                              _loadJobs();
-                            }
-                          },
-                          text: 'Edit',
-                        ),
-                        const SizedBox(width: 8),
-                        Button(
-                          variant: ButtonVariant.destructive,
-                          onPressed: () =>
-                              _showDeleteConfirmation(context, job),
-                          text: 'Delete',
-                        ),
-                      ],
+                  ),
+                  if (job.notes != null) ...[
+                    const SizedBox(height: 16),
+                    Text('Notes',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 4),
+                    Text(
+                      job.notes!,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+                  if (job.requirements != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Requirements',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      job.requirements!,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  if (job.images != null && job.images!.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text('Images',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 100,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: job.images!.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              job.images![index],
+                              height: 100,
+                              width: 100,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  height: 100,
+                                  width: 100,
+                                  color: Colors.grey[200],
+                                  child: const Icon(Icons.error),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+
+                  // File attachments section
+                  if (job.fileData != null &&
+                      job.fileData!.containsKey('files') &&
+                      job.fileData!['files'] is List &&
+                      (job.fileData!['files'] as List).isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    FilePreviewWidget(
+                      fileData: job.fileData,
+                      showTitle: true,
+                      maxFilesToShow: 3,
+                    ),
+                  ],
+
+                  const SizedBox(height: 16),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      // On small cards, stack payment status and buttons vertically
+                      if (constraints.maxWidth < 300) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: job.paymentStatus == 'paid'
+                                    ? Colors.green[100]
+                                    : Colors.grey[100],
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                (job.paymentStatus ?? 'unpaid').toUpperCase(),
+                                style: TextStyle(
+                                  color: job.paymentStatus == 'paid'
+                                      ? Colors.green[800]
+                                      : Colors.grey[800],
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Button(
+                                    variant: ButtonVariant.outline,
+                                    onPressed: () async {
+                                      final result = await Navigator.pushNamed(
+                                        context,
+                                        '/new-job',
+                                        arguments: job,
+                                      );
+                                      if (result == true) {
+                                        _loadJobs();
+                                      }
+                                    },
+                                    text: 'Edit',
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Button(
+                                    variant: ButtonVariant.destructive,
+                                    onPressed: () =>
+                                        _showDeleteConfirmation(context, job),
+                                    text: 'Delete',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      }
+
+                      // On larger cards, use horizontal layout
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: job.paymentStatus == 'paid'
+                                  ? Colors.green[100]
+                                  : Colors.grey[100],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              (job.paymentStatus ?? 'unpaid').toUpperCase(),
+                              style: TextStyle(
+                                color: job.paymentStatus == 'paid'
+                                    ? Colors.green[800]
+                                    : Colors.grey[800],
+                                fontWeight: FontWeight.w500,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              Button(
+                                variant: ButtonVariant.outline,
+                                onPressed: () async {
+                                  final result = await Navigator.pushNamed(
+                                    context,
+                                    '/new-job',
+                                    arguments: job,
+                                  );
+                                  if (result == true) {
+                                    _loadJobs();
+                                  }
+                                },
+                                text: 'Edit',
+                              ),
+                              const SizedBox(width: 8),
+                              Button(
+                                variant: ButtonVariant.destructive,
+                                onPressed: () =>
+                                    _showDeleteConfirmation(context, job),
+                                text: 'Delete',
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            )));
   }
 
   Widget _buildJobsTable() {
@@ -750,6 +792,177 @@ class _JobsPageState extends State<JobsPage> {
               ],
             );
           }).toList(),
+        ),
+      ],
+    );
+  }
+
+  void _showJobPreview(Job job) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          job.clientName,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildJobDetails(job),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.goldColor,
+            ),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(
+                context,
+                '/new-job',
+                arguments: job,
+              ).then((_) => _loadJobs());
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildJobDetails(Job job) {
+    List<Widget> details = [];
+
+    // Job Type
+    details.addAll([
+      _buildDetailRow('Type', job.type),
+      const SizedBox(height: 8),
+    ]);
+
+    // Date and Time
+    details.addAll([
+      _buildDetailRow('Date', _formatDateRange(job)),
+      const SizedBox(height: 8),
+    ]);
+
+    if (job.time != null) {
+      details.addAll([
+        _buildDetailRow('Time',
+            '${job.time}${job.endTime != null ? ' - ${job.endTime}' : ''}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Location
+    if (job.location.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Location', job.location),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate
+    if (job.rate > 0) {
+      details.addAll([
+        _buildDetailRow(
+            'Rate', '${job.currency ?? 'USD'} ${job.rate.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Extra Hours
+    if (job.extraHours != null && job.extraHours! > 0) {
+      details.addAll([
+        _buildDetailRow(
+            'Extra Hours', '${job.extraHours!.toStringAsFixed(1)} hours'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Booking Agent
+    if (job.bookingAgent != null && job.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Agent', job.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    if (job.status != null) {
+      details.addAll([
+        _buildDetailRow('Status', job.status!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Payment Status
+    if (job.paymentStatus != null) {
+      details.addAll([
+        _buildDetailRow('Payment', job.paymentStatus!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Requirements
+    if (job.requirements != null && job.requirements!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Requirements', job.requirements!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Notes
+    if (job.notes != null && job.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', job.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
         ),
       ],
     );

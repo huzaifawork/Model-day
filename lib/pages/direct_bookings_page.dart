@@ -6,6 +6,7 @@ import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
 import 'package:new_flutter/models/direct_booking.dart';
 import 'package:new_flutter/services/direct_bookings_service.dart';
+import 'package:new_flutter/theme/app_theme.dart';
 
 class DirectBookingsPage extends StatefulWidget {
   const DirectBookingsPage({super.key});
@@ -131,6 +132,18 @@ class _DirectBookingsPageState extends State<DirectBookingsPage> {
     final finalAmount = totalBeforeDeductions - agencyFee - taxAmount;
 
     return finalAmount;
+  }
+
+  String _formatDateRange(DirectBooking booking) {
+    if (booking.date == null) return 'No date';
+
+    String dateText = DateFormat('MMM d, yyyy').format(booking.date!);
+
+    if (booking.isMultiDay && booking.endDate != null) {
+      dateText += ' - ${DateFormat('MMM d, yyyy').format(booking.endDate!)}';
+    }
+
+    return dateText;
   }
 
   Widget _buildLoadingWidget() {
@@ -333,7 +346,7 @@ class _DirectBookingsPageState extends State<DirectBookingsPage> {
                         size: 16, color: Colors.grey),
                     const SizedBox(width: 4),
                     Text(
-                      DateFormat('MMM d, yyyy').format(booking.date!),
+                      _formatDateRange(booking),
                       style: const TextStyle(color: Colors.grey),
                     ),
                   ],
@@ -431,8 +444,7 @@ class _DirectBookingsPageState extends State<DirectBookingsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(booking.bookingType ?? 'No Type'),
-            if (booking.date != null)
-              Text(DateFormat('MMM d, yyyy').format(booking.date!)),
+            if (booking.date != null) Text(_formatDateRange(booking)),
             // File attachments indicator
             if (booking.files != null &&
                 booking.files!.containsKey('files') &&
@@ -528,63 +540,245 @@ class _DirectBookingsPageState extends State<DirectBookingsPage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(booking.clientName),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (booking.bookingType != null) ...[
-                  Text('Type: ${booking.bookingType}'),
-                  const SizedBox(height: 8),
-                ],
-                if (booking.date != null) ...[
-                  Text(
-                      'Date: ${DateFormat('MMM d, yyyy').format(booking.date!)}'),
-                  const SizedBox(height: 8),
-                ],
-                if (booking.location != null) ...[
-                  Row(
-                    children: [
-                      const Text('Location: '),
-                      Expanded(
-                        child: ClickableContactInfo(
-                          text: booking.location!,
-                          type: ContactType.location,
-                          showIcon: false,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                if (booking.rate != null) ...[
-                  Text(
-                      'Rate: ${_getCurrencySymbol(booking.currency)}${booking.rate}'),
-                  const SizedBox(height: 8),
-                ],
-                Text('Status: ${booking.status ?? 'Unknown'}'),
-                const SizedBox(height: 8),
-                Text('Payment: ${booking.paymentStatus ?? 'Unknown'}'),
-              ],
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            booking.clientName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _buildDirectBookingDetails(booking),
+              ),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.goldColor,
+              ),
               child: const Text('Close'),
             ),
-            TextButton(
+            ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _editBooking(booking);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.goldColor,
+                foregroundColor: Colors.black,
+              ),
               child: const Text('Edit'),
             ),
           ],
         );
       },
+    );
+  }
+
+  List<Widget> _buildDirectBookingDetails(DirectBooking booking) {
+    List<Widget> details = [];
+
+    // Booking Type
+    if (booking.bookingType != null && booking.bookingType!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Type', booking.bookingType!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date and Time
+    if (booking.date != null) {
+      details.addAll([
+        _buildDetailRow('Date', _formatDateRange(booking)),
+        const SizedBox(height: 8),
+      ]);
+      if (booking.time != null) {
+        details.addAll([
+          _buildDetailRow('Time',
+              '${booking.time}${booking.endTime != null ? ' - ${booking.endTime}' : ''}'),
+          const SizedBox(height: 8),
+        ]);
+      }
+    }
+
+    // Location
+    if (booking.location != null && booking.location!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: booking.location!,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate
+    if (booking.rate != null && booking.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Rate',
+            '${_getCurrencySymbol(booking.currency)}${booking.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Extra Hours
+    if (booking.extraHours != null && booking.extraHours!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Extra Hours', booking.extraHours!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Booking Agent
+    if (booking.bookingAgent != null && booking.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Agent', booking.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Contact Information
+    if (booking.phone != null && booking.phone!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Phone:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: booking.phone!,
+                type: ContactType.phone,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (booking.email != null && booking.email!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Email:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: booking.email!,
+                type: ContactType.email,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', (booking.status ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Payment Status
+    details.addAll([
+      _buildDetailRow(
+          'Payment', (booking.paymentStatus ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Notes
+    if (booking.notes != null && booking.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', booking.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

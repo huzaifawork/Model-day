@@ -8,6 +8,13 @@ service cloud.firestore {
       allow read: if request.auth != null && isAdmin();
     }
     
+    // Allow authenticated users to query users collection by email for password reset
+    match /users/{userId} {
+      allow read: if request.auth != null && 
+        request.query != null && 
+        request.query.where != null;
+    }
+    
     // Admin collections - full access for authenticated users
     match /admins/{document} {
       allow read, write: if request.auth != null;
@@ -39,6 +46,19 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
     
+    // Password link requests - allow authenticated users to create and read their own
+    match /password_link_requests/{document} {
+      allow create: if request.auth != null;
+      allow read, update: if request.auth != null && 
+        (resource.data.email == request.auth.token.email || isAdmin());
+    }
+    
+    // Password reset requests - allow authenticated users to create and read their own
+    match /password_reset_requests/{document} {
+      allow create: if request.auth != null;
+      allow read, update: if request.auth != null && isAdmin();
+    }
+
     // Allow authenticated users to read/write all other collections
     // This maintains your existing broad permissions
     match /{document=**} {

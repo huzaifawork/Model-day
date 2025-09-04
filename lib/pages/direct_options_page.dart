@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/models/event.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/events_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
+import 'package:new_flutter/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DirectOptionsPage extends StatefulWidget {
   const DirectOptionsPage({super.key});
@@ -23,11 +27,29 @@ class _DirectOptionsPageState extends State<DirectOptionsPage> {
   String _sortOrder = 'date-desc';
   final TextEditingController _searchController = TextEditingController();
   final EventsService _eventsService = EventsService();
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
 
   @override
   void initState() {
     super.initState();
+    _loadAgents();
     _loadOptions();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -638,69 +660,295 @@ class _DirectOptionsPageState extends State<DirectOptionsPage> {
   }
 
   void _showOptionDetails(Event option) {
-    final optionType = option.additionalData?['option_type'];
-    final status = option.status?.toString().split('.').last ?? 'Unknown';
-
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(option.clientName ?? 'No Client'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (optionType != null) ...[
-                  Text('Type: $optionType'),
-                  const SizedBox(height: 8),
-                ],
-                if (option.date != null) ...[
-                  Text(
-                      'Date: ${DateFormat('MMM d, yyyy').format(option.date!)}'),
-                  const SizedBox(height: 8),
-                ],
-                if (option.location != null) ...[
-                  Row(
-                    children: [
-                      const Text('Location: '),
-                      Expanded(
-                        child: ClickableContactInfo(
-                          text: option.location!,
-                          type: ContactType.location,
-                          showIcon: false,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                if (option.dayRate != null) ...[
-                  Text(
-                      'Rate: ${_getCurrencySymbol(option.currency)}${option.dayRate}'),
-                  const SizedBox(height: 8),
-                ],
-                Text('Status: $status'),
-              ],
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            option.clientName ?? 'Direct Option Details',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _buildDirectOptionDetails(option),
+              ),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.goldColor,
+              ),
               child: const Text('Close'),
             ),
-            TextButton(
+            ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _editOption(option);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.goldColor,
+                foregroundColor: Colors.black,
+              ),
               child: const Text('Edit'),
             ),
           ],
         );
       },
     );
+  }
+
+  List<Widget> _buildDirectOptionDetails(Event option) {
+    List<Widget> details = [];
+
+    // Event Type
+    details.addAll([
+      _buildDetailRow('Type', 'Direct Option'),
+      const SizedBox(height: 8),
+    ]);
+
+    // Option Type
+    final optionType = option.additionalData?['option_type'];
+    if (optionType != null) {
+      details.addAll([
+        _buildDetailRow('Option Type', optionType.toString()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date and Time
+    if (option.date != null) {
+      details.addAll([
+        _buildDetailRow(
+            'Date', DateFormat('EEEE, MMMM d, yyyy').format(option.date!)),
+        const SizedBox(height: 8),
+      ]);
+      if (option.startTime != null) {
+        details.addAll([
+          _buildDetailRow('Time',
+              '${option.startTime}${option.endTime != null ? ' - ${option.endTime}' : ''}'),
+          const SizedBox(height: 8),
+        ]);
+      }
+    }
+
+    // Location
+    if (option.location != null && option.location!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: option.location!,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Day Rate and Usage Rate
+    if (option.dayRate != null && option.dayRate! > 0) {
+      details.addAll([
+        _buildDetailRow('Day Rate',
+            '${_getCurrencySymbol(option.currency)}${option.dayRate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (option.usageRate != null && option.usageRate! > 0) {
+      details.addAll([
+        _buildDetailRow('Usage Rate',
+            '${_getCurrencySymbol(option.currency)}${option.usageRate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information
+    if (option.agentId != null && option.agentId!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', option.agentId!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    final status = option.status?.toString().split('.').last ?? 'Unknown';
+    details.addAll([
+      _buildDetailRow('Status', status.toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Payment Status
+    if (option.paymentStatus != null) {
+      details.addAll([
+        _buildDetailRow('Payment',
+            option.paymentStatus.toString().split('.').last.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Notes
+    if (option.notes != null && option.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', option.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentIdOrName) {
+    // Get agent from cache, fallback to creating a dummy agent with the provided name
+    final agent = _agentCache[agentIdOrName] ?? Agent(name: agentIdOrName);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent.name,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _sendWhatsAppToAgent(agent),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.chat,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (context.mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
   }
 
   void _editOption(Event option) async {
@@ -743,10 +991,11 @@ class _DirectOptionsPageState extends State<DirectOptionsPage> {
   Future<void> _deleteOption(Event option) async {
     if (option.id == null) return;
 
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     try {
       final success = await _eventsService.deleteEvent(option.id!);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text(success
                 ? 'Option deleted successfully'
@@ -760,7 +1009,7 @@ class _DirectOptionsPageState extends State<DirectOptionsPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text('Error deleting option: $e'),
             backgroundColor: Colors.red,

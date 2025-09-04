@@ -24,6 +24,22 @@ class EventsService {
     }
   }
 
+  /// Get events with raw document data for filtering by email fields
+  Future<List<Map<String, dynamic>>> getEventsWithRawData() async {
+    try {
+      debugPrint('📅 EventsService.getEventsWithRawData() - Fetching ALL events for approvals filtering...');
+      // Important: Approvals need to see events where current user is either the model or the agent,
+      // which may include events created by another user. So we must fetch all documents here.
+      final documents = await FirebaseServiceTemplate.getDocuments(_collectionName);
+      debugPrint(
+          '📅 EventsService.getEventsWithRawData() - Found ${documents.length} total events');
+      return documents;
+    } catch (e) {
+      debugPrint('❌ Error fetching events with raw data: $e');
+      return [];
+    }
+  }
+
   Future<Event?> createEvent(Map<String, dynamic> eventData) async {
     try {
       debugPrint(
@@ -134,6 +150,89 @@ class EventsService {
     }
   }
 
+  /// Get events with pending status for approvals
+  Future<List<Event>> getPendingEvents() async {
+    try {
+      debugPrint('📅 EventsService.getPendingEvents() - Fetching pending events...');
+      final documents = await FirebaseServiceTemplate.getUserDocuments(_collectionName);
+      debugPrint('📅 EventsService.getPendingEvents() - Found ${documents.length} total documents');
+      
+      final pendingEvents = documents
+          .where((doc) => doc['status'] == 'pending')
+          .map<Event>((doc) => Event.fromJson(doc))
+          .toList();
+      
+      debugPrint('📅 EventsService.getPendingEvents() - Found ${pendingEvents.length} pending events');
+      return pendingEvents;
+    } catch (e) {
+      debugPrint('❌ Error fetching pending events: $e');
+      return [];
+    }
+  }
+
+  /// Approve an event by updating its status
+  Future<bool> approveEvent(String eventId) async {
+    try {
+      debugPrint('📅 EventsService.approveEvent() - Approving event: $eventId');
+      final success = await FirebaseServiceTemplate.updateDocument(
+          _collectionName, eventId, {'status': 'approved'});
+      debugPrint('📅 EventsService.approveEvent() - Success: $success');
+      return success;
+    } catch (e) {
+      debugPrint('❌ Error approving event: $e');
+      return false;
+    }
+  }
+
+  /// Approve an event and sync to Google Calendar
+  Future<bool> approveEventWithCalendarSync(String eventId) async {
+    try {
+      debugPrint('📅 EventsService.approveEventWithCalendarSync() - Approving event: $eventId');
+      
+      // First, get the event details
+      final eventDoc = await FirebaseServiceTemplate.getDocument(_collectionName, eventId);
+      if (eventDoc == null) {
+        debugPrint('❌ Event document not found: $eventId');
+        return false;
+      }
+      
+      // Update event status to approved
+      final statusUpdateSuccess = await FirebaseServiceTemplate.updateDocument(
+          _collectionName, eventId, {'status': 'approved'});
+      
+      if (!statusUpdateSuccess) {
+        debugPrint('❌ Failed to update event status to approved');
+        return false;
+      }
+      
+      // Convert document to Event object for calendar sync
+      final event = Event.fromJson(eventDoc);
+      
+      // Sync to Google Calendar using the proper method
+      await _syncEventToGoogleCalendar(event, eventId);
+      
+      debugPrint('✅ Event approved and synced to calendar: $eventId');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error approving event with calendar sync: $e');
+      return false;
+    }
+  }
+
+  /// Reject an event by updating its status
+  Future<bool> rejectEvent(String eventId) async {
+    try {
+      debugPrint('📅 EventsService.rejectEvent() - Rejecting event: $eventId');
+      final success = await FirebaseServiceTemplate.updateDocument(
+          _collectionName, eventId, {'status': 'rejected'});
+      debugPrint('📅 EventsService.rejectEvent() - Success: $success');
+      return success;
+    } catch (e) {
+      debugPrint('❌ Error rejecting event: $e');
+      return false;
+    }
+  }
+
   /// Sync event to Google Calendar in background
   static Future<void> _syncEventToGoogleCalendar(
       Event event, String docId) async {
@@ -158,64 +257,26 @@ class EventsService {
           'synced_to_google_calendar': true,
           'last_sync_date': DateTime.now().toIso8601String(),
         });
-        debugPrint('✅ Event synced to Google Calendar: $calendarEventId');
+        debugPrint('✅ Event synced to Google Calendar with ID: $calendarEventId');
       } else {
-        debugPrint('❌ Failed to sync event to Google Calendar');
+        debugPrint('❌ Failed to create event in Google Calendar');
       }
     } catch (e) {
       debugPrint('❌ Error syncing event to Google Calendar: $e');
-      // Don't throw error - sync failure shouldn't break the app
     }
   }
 
-  /// Sync event update to Google Calendar in background
+  /// Sync update to Google Calendar
   static Future<void> _syncEventUpdateToGoogleCalendar(
       Event event, String docId) async {
     try {
-      debugPrint(
-          '📅 Syncing event update to Google Calendar: ${event.clientName}');
-      debugPrint('🔍 Event Google Calendar ID: ${event.googleCalendarEventId}');
-      debugPrint('🔍 Event synced status: ${event.syncedToGoogleCalendar}');
+      debugPrint('📅 Syncing event update to Google Calendar: ${event.clientName}');
 
-      // Check if event was previously synced to Google Calendar
+      // Only attempt sync if event was previously synced
       if (event.googleCalendarEventId == null ||
           event.googleCalendarEventId!.isEmpty) {
-        debugPrint('❌ No Google Calendar event ID found in event object');
-
-        // Try to find Google Calendar event ID by searching for events with matching title
-        debugPrint('🔍 Searching for Google Calendar event by title...');
-        final googleCalendarEventId =
-            await _findGoogleCalendarEventByTitle(event);
-
-        if (googleCalendarEventId != null) {
-          debugPrint(
-              '✅ Found Google Calendar event ID: $googleCalendarEventId');
-
-          // Update Firestore with the found Google Calendar event ID
-          await FirebaseServiceTemplate.updateDocument(_collectionName, docId, {
-            'google_calendar_event_id': googleCalendarEventId,
-            'synced_to_google_calendar': true,
-            'last_sync_date': DateTime.now().toIso8601String(),
-          });
-
-          // Now proceed with the update using the found event ID
-          final success =
-              await GoogleCalendarService.updateEventInGoogleCalendar(
-                  googleCalendarEventId, event);
-
-          if (success) {
-            debugPrint(
-                '✅ Event update synced to Google Calendar: $googleCalendarEventId');
-          } else {
-            debugPrint('❌ Failed to sync event update to Google Calendar');
-          }
-          return;
-        } else {
-          debugPrint(
-              '❌ Could not find Google Calendar event - skipping update sync');
-          debugPrint('🔍 Event data: ${event.toJson()}');
-          return;
-        }
+        debugPrint('ℹ️ Event has no Google Calendar ID, skipping update sync');
+        return;
       }
 
       // Test calendar access first
@@ -230,33 +291,24 @@ class EventsService {
           event.googleCalendarEventId!, event);
 
       if (success) {
-        // Update Firestore with sync status
         await FirebaseServiceTemplate.updateDocument(_collectionName, docId, {
+          'synced_to_google_calendar': true,
           'last_sync_date': DateTime.now().toIso8601String(),
         });
-        debugPrint(
-            '✅ Event update synced to Google Calendar: ${event.googleCalendarEventId}');
+        debugPrint('✅ Event update synced to Google Calendar');
       } else {
-        debugPrint('❌ Failed to sync event update to Google Calendar');
+        debugPrint('❌ Failed to update event in Google Calendar');
       }
     } catch (e) {
       debugPrint('❌ Error syncing event update to Google Calendar: $e');
-      // Don't throw error - sync failure shouldn't break the app
     }
   }
 
-  /// Sync event deletion to Google Calendar in background
+  /// Sync delete to Google Calendar
   static Future<void> _syncEventDeleteToGoogleCalendar(
-      String googleCalendarEventId, String clientName) async {
+      String eventId, String eventTitle) async {
     try {
-      debugPrint('📅 Syncing event deletion to Google Calendar: $clientName');
-
-      // Check if we have a valid Google Calendar event ID
-      if (googleCalendarEventId.isEmpty) {
-        debugPrint(
-            '❌ No Google Calendar event ID provided - skipping delete sync');
-        return;
-      }
+      debugPrint('📅 Syncing event delete to Google Calendar: $eventTitle');
 
       // Test calendar access first
       final hasAccess = await GoogleCalendarService.testCalendarAccess();
@@ -265,49 +317,16 @@ class EventsService {
         return;
       }
 
-      // Delete event from Google Calendar
-      final success = await GoogleCalendarService.deleteEventInGoogleCalendar(
-          googleCalendarEventId);
+      final success =
+          await GoogleCalendarService.deleteEventInGoogleCalendar(eventId);
 
       if (success) {
-        debugPrint(
-            '✅ Event deletion synced to Google Calendar: $googleCalendarEventId');
+        debugPrint('✅ Event delete synced to Google Calendar');
       } else {
-        debugPrint('❌ Failed to sync event deletion to Google Calendar');
+        debugPrint('❌ Failed to delete event in Google Calendar');
       }
     } catch (e) {
-      debugPrint('❌ Error syncing event deletion to Google Calendar: $e');
-      // Don't throw error - sync failure shouldn't break the app
-    }
-  }
-
-  /// Find Google Calendar event by searching for events with matching title
-  static Future<String?> _findGoogleCalendarEventByTitle(Event event) async {
-    try {
-      debugPrint(
-          '🔍 Searching for Google Calendar event with title: ${event.title}');
-
-      // Test calendar access first
-      final hasAccess = await GoogleCalendarService.testCalendarAccess();
-      if (!hasAccess) {
-        debugPrint('❌ No Google Calendar access - cannot search for events');
-        return null;
-      }
-
-      // Search for events with matching title
-      final foundEventId =
-          await GoogleCalendarService.findEventByTitle(event.title, event.date);
-
-      if (foundEventId != null) {
-        debugPrint('✅ Found Google Calendar event: $foundEventId');
-        return foundEventId;
-      } else {
-        debugPrint('❌ No matching Google Calendar event found');
-        return null;
-      }
-    } catch (e) {
-      debugPrint('❌ Error searching for Google Calendar event: $e');
-      return null;
+      debugPrint('❌ Error syncing event delete to Google Calendar: $e');
     }
   }
 }

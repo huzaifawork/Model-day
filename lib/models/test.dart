@@ -11,6 +11,7 @@ class Test {
   final String? clientName;
   final double? rate;
   final String? currency;
+  final String? agentId;
   final List<String>? images;
 
   Test({
@@ -24,6 +25,7 @@ class Test {
     this.clientName,
     this.rate,
     this.currency,
+    this.agentId,
     this.images,
   });
 
@@ -39,6 +41,7 @@ class Test {
       clientName: json['client_name'],
       rate: json['rate']?.toDouble(),
       currency: json['currency'],
+      agentId: json['agent_id'],
       images: json['images'] != null ? List<String>.from(json['images']) : null,
     );
   }
@@ -55,6 +58,7 @@ class Test {
       'client_name': clientName,
       'rate': rate,
       'currency': currency,
+      'agent_id': agentId,
       'images': images,
     };
   }

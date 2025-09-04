@@ -4,7 +4,11 @@ import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/models/polaroid.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/polaroids_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
+import 'package:new_flutter/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PolaroidsPage extends StatefulWidget {
   const PolaroidsPage({super.key});
@@ -17,6 +21,8 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
   List<Polaroid> _polaroids = [];
   List<Polaroid> _filteredPolaroids = [];
   bool _isLoading = true;
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
   bool _isGridView = true;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
@@ -24,7 +30,23 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
   @override
   void initState() {
     super.initState();
+    _loadAgents();
     _loadPolaroids();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -35,11 +57,13 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
 
   Future<void> _loadPolaroids() async {
     if (!mounted) return;
-    debugPrint('📸 PolaroidsPage._loadPolaroids() - Starting to load polaroids');
+    debugPrint(
+        '📸 PolaroidsPage._loadPolaroids() - Starting to load polaroids');
     setState(() => _isLoading = true);
     try {
       final polaroids = await PolaroidsService.list();
-      debugPrint('📸 PolaroidsPage._loadPolaroids() - Loaded ${polaroids.length} polaroids');
+      debugPrint(
+          '📸 PolaroidsPage._loadPolaroids() - Loaded ${polaroids.length} polaroids');
 
       for (var polaroid in polaroids) {
         debugPrint('📸 Polaroid: ${polaroid.clientName} (${polaroid.id})');
@@ -52,7 +76,8 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
         _isLoading = false;
       });
       _applyFilters();
-      debugPrint('📸 PolaroidsPage._loadPolaroids() - Finished loading polaroids');
+      debugPrint(
+          '📸 PolaroidsPage._loadPolaroids() - Finished loading polaroids');
     } catch (e) {
       debugPrint('📸 Error loading polaroids: $e');
       if (!mounted) return;
@@ -194,7 +219,7 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
     return Card(
       elevation: 2,
       child: InkWell(
-        onTap: () => _editPolaroid(polaroid),
+        onTap: () => _showPolaroidPreview(polaroid),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -259,7 +284,8 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
                 const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                  const Icon(Icons.calendar_today,
+                      size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
                   Text(_formatDate(polaroid.date),
                       style: const TextStyle(color: Colors.grey)),
@@ -339,14 +365,7 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
             _buildStatusChip(polaroid.status),
           ],
         ),
-        onTap: () async {
-          debugPrint('📸 PolaroidsPage - List item tapped: $title (${polaroid.id})');
-          final result = await Navigator.pushNamed(context, '/new-polaroid',
-              arguments: polaroid.id);
-          if (result == true && mounted) {
-            _loadPolaroids();
-          }
-        },
+        onTap: () => _showPolaroidPreview(polaroid),
       ),
     );
   }
@@ -378,15 +397,280 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
     );
   }
 
+  void _showPolaroidPreview(Polaroid polaroid) {
+    // Create a meaningful title for the polaroid
+    String title = 'Polaroid Session';
+    if (polaroid.type != null && polaroid.type!.isNotEmpty) {
+      title = '${polaroid.type} Polaroid';
+    }
+    if (polaroid.location != null && polaroid.location!.isNotEmpty) {
+      title += ' at ${polaroid.location}';
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildPolaroidDetails(polaroid),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.goldColor,
+            ),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _editPolaroid(polaroid);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildPolaroidDetails(Polaroid polaroid) {
+    List<Widget> details = [];
+
+    // Type
+    if (polaroid.type != null && polaroid.type!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Type', polaroid.type!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date
+    details.addAll([
+      _buildDetailRow('Date', polaroid.date),
+      const SizedBox(height: 8),
+    ]);
+
+    // Location
+    if (polaroid.location != null && polaroid.location!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: polaroid.location!,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate
+    if (polaroid.rate != null && polaroid.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Rate', '\$${polaroid.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information
+    if (polaroid.bookingAgent != null && polaroid.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', polaroid.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', (polaroid.status ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Notes
+    if (polaroid.notes != null && polaroid.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', polaroid.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentIdOrName) {
+    // Get agent from cache, fallback to creating a dummy agent with the provided name
+    final agent = _agentCache[agentIdOrName] ?? Agent(name: agentIdOrName);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent.name,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _sendWhatsAppToAgent(agent),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.chat,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+    final currentContext = context;
+
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
+  }
+
   void _editPolaroid(Polaroid polaroid) async {
-    debugPrint('📸 PolaroidsPage._editPolaroid() - Editing polaroid: ${polaroid.clientName} (${polaroid.id})');
+    debugPrint(
+        '📸 PolaroidsPage._editPolaroid() - Editing polaroid: ${polaroid.clientName} (${polaroid.id})');
     final result = await Navigator.pushNamed(
       context,
       '/new-polaroid',
       arguments: polaroid.id, // Pass the ID, not the object
     );
     if (result == true && mounted) {
-      debugPrint('📸 PolaroidsPage._editPolaroid() - Edit completed, reloading polaroids');
+      debugPrint(
+          '📸 PolaroidsPage._editPolaroid() - Edit completed, reloading polaroids');
       _loadPolaroids();
     }
   }
@@ -463,7 +747,8 @@ class _PolaroidsPageState extends State<PolaroidsPage> {
         ExportButton(
           type: ExportType.polaroids,
           data: _filteredPolaroids,
-          customFilename: 'polaroids_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+          customFilename:
+              'polaroids_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
         ),
         const SizedBox(width: 8),
         IconButton(

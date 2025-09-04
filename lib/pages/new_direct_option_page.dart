@@ -12,8 +12,10 @@ import 'package:new_flutter/providers/agents_provider.dart';
 
 import 'package:new_flutter/services/direct_options_service.dart';
 import 'package:new_flutter/services/file_upload_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NewDirectOptionPage extends StatefulWidget {
   const NewDirectOptionPage({super.key});
@@ -36,10 +38,15 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
 
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
+
   String _selectedOptionType = '';
   OptionStatus _selectedOptionStatus = OptionStatus.pending;
   String _selectedCurrency = 'USD';
-  DateTime _selectedDate = DateTime(2025, 7, 14);
+  DateTime _selectedDate = DateTime.now();
   DateTime? _endDate;
   String? _selectedAgentId = 'ogbhai(uzibhaikiagencykoishak)';
   bool _isCustomType = false;
@@ -55,6 +62,7 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
     'Editorial',
     'Fashion Show',
     'Lookbook',
+    'On Stay',
     'Print',
     'Runway',
     'Social Media',
@@ -79,6 +87,9 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (5 text fields: Client Name, Custom Option Type, Location, Day Rate, Usage Rate, Notes)
+    _manualFocusNodes = List.generate(6, (index) => FocusNode());
     debugPrint('🔧 NewDirectOptionPage.initState() - _isEditing: $_isEditing');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Load agents data
@@ -104,8 +115,7 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
   void _loadInitialData(Map<String, dynamic> data) {
     setState(() {
       _clientNameController.text = data['clientName'] ?? '';
-      _selectedDate =
-          DateTime.tryParse(data['date'] ?? '') ?? DateTime(2025, 7, 14);
+      _selectedDate = DateTime.tryParse(data['date'] ?? '') ?? DateTime.now();
       _locationController.text = data['location'] ?? '';
       _dayRateController.text = data['dayRate'] ?? '';
       _usageRateController.text = data['usageRate'] ?? '';
@@ -141,7 +151,8 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
     }
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> extractedData) {
+  Future<void> _handleOcrDataExtracted(
+      Map<String, dynamic> extractedData) async {
     debugPrint('=== FORM HANDLER CALLED ===');
     debugPrint('OCR Data received: $extractedData');
     debugPrint('Keys received: ${extractedData.keys.toList()}');
@@ -172,19 +183,8 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
           debugPrint('Date parsed successfully: $_selectedDate');
         } catch (e) {
           debugPrint('Error parsing date: $e');
-          // Try different date formats
-          try {
-            final dateStr = extractedData['date'].toString().toLowerCase();
-            if (dateStr.contains('march')) {
-              _selectedDate = DateTime(2024, 3, 15);
-              debugPrint('Set March date: $_selectedDate');
-            } else if (dateStr.contains('july')) {
-              _selectedDate = DateTime(2025, 7, 15);
-              debugPrint('Set July date: $_selectedDate');
-            }
-          } catch (e2) {
-            debugPrint('Error parsing date format: $e2');
-          }
+          // If date parsing fails, keep the current date (DateTime.now())
+          debugPrint('Keeping current date: $_selectedDate');
         }
       } else {
         debugPrint('No date found in extracted data');
@@ -201,20 +201,11 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
       } else {
         debugPrint('No usageRate found in extracted data');
       }
+      // Agent matching moved outside setState - see below
       if (extractedData['bookingAgent'] != null) {
-        debugPrint('Setting agent: ${extractedData['bookingAgent']}');
-        // If the extracted agent contains "ogbhai", use the actual agent ID
-        final extractedAgent = extractedData['bookingAgent'].toString();
-        if (extractedAgent.toLowerCase().contains('ogbhai')) {
-          _selectedAgentId =
-              'sUAOiTx4b9dzTlSkIIOj'; // Use the actual agent ID from dropdown
-        } else {
-          _selectedAgentId = extractedData['bookingAgent'];
-        }
+        debugPrint('✅ Agent will be set after setState');
       } else {
-        debugPrint('No bookingAgent found in extracted data');
-        // Set default agent ID
-        _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj';
+        debugPrint('❌ No bookingAgent found in OCR data');
       }
       if (extractedData['time'] != null) {
         // Add time to notes if not already there
@@ -273,14 +264,190 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
         debugPrint('Setting default agency fee to 20%');
       }
 
-      // Set default values for required fields
-      if (_selectedOptionType.isEmpty) {
+      if (extractedData['callTime'] != null) {
+        debugPrint('Setting call time: ${extractedData['callTime']}');
+        // Add call time to notes if not already there
+        final callTimeInfo = 'Call time: ${extractedData['callTime']}';
+        if (!_notesController.text.contains(callTimeInfo)) {
+          if (_notesController.text.isNotEmpty) {
+            _notesController.text += '\n\n$callTimeInfo';
+          } else {
+            _notesController.text = callTimeInfo;
+          }
+        }
+      }
+
+      // Apply smart defaults based on extracted data context
+      _applySmartDefaults(extractedData);
+    });
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(extractedData);
+
+    // Handle agent matching after setState (async operation)
+    if (extractedData['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${extractedData['bookingAgent']}');
+      await _matchAgentIntelligently(extractedData['bookingAgent'].toString());
+    }
+
+    debugPrint('=== DIRECT OPTIONS FORM UPDATE COMPLETE ===');
+  }
+
+  /// Apply smart defaults based on extracted data context
+  void _applySmartDefaults(Map<String, dynamic> extractedData) {
+    debugPrint('🧠 Applying smart defaults for direct option...');
+
+    // Extract common variables for use throughout the method
+    final clientName =
+        extractedData['clientName']?.toString().toLowerCase() ?? '';
+    final notes = extractedData['notes']?.toString().toLowerCase() ?? '';
+    final jobTitle = extractedData['jobTitle']?.toString().toLowerCase() ?? '';
+
+    // Smart option type detection
+    if (_selectedOptionType.isEmpty) {
+      // Detect option type from context
+      if (clientName.contains('samsung') ||
+          jobTitle.contains('galaxy') ||
+          notes.contains('commercial')) {
+        _selectedOptionType = 'Commercial';
+        _isCustomType = false;
+        debugPrint('🧠 Smart default: Commercial option detected');
+      } else if (notes.contains('editorial') || notes.contains('magazine')) {
+        _selectedOptionType = 'Editorial';
+        _isCustomType = false;
+        debugPrint('🧠 Smart default: Editorial option detected');
+      } else if (notes.contains('fashion') || notes.contains('runway')) {
+        _selectedOptionType = 'Fashion Show';
+        _isCustomType = false;
+        debugPrint('🧠 Smart default: Fashion option detected');
+      } else if (notes.contains('social') || notes.contains('instagram')) {
+        _selectedOptionType = 'Social Media';
+        _isCustomType = false;
+        debugPrint('🧠 Smart default: Social Media option detected');
+      } else {
+        // Default to custom type
         _selectedOptionType = 'Add manually';
         _isCustomType = true;
-        debugPrint('Set default option type to Add manually');
+        _customTypeController.text = 'Commercial';
+        debugPrint('🧠 Smart default: Custom Commercial option');
       }
-    });
-    debugPrint('=== DIRECT OPTIONS FORM UPDATE COMPLETE ===');
+    }
+
+    // Smart currency based on location or client
+    if (_selectedCurrency == 'USD') {
+      final location =
+          extractedData['location']?.toString().toLowerCase() ?? '';
+      final clientName =
+          extractedData['clientName']?.toString().toLowerCase() ?? '';
+
+      if (location.contains('europe') ||
+          location.contains('poland') ||
+          location.contains('germany') ||
+          clientName.contains('samsung') ||
+          extractedData['currency']?.toString() == 'EUR') {
+        _selectedCurrency = 'EUR';
+        debugPrint('🧠 Smart default: EUR currency detected');
+      } else if (location.contains('uk') || location.contains('london')) {
+        _selectedCurrency = 'GBP';
+        debugPrint('🧠 Smart default: GBP currency detected');
+      }
+    }
+
+    // Smart option status based on context
+    if (notes.contains('declined') || notes.contains('rejected')) {
+      _selectedOptionStatus = OptionStatus.declined;
+      debugPrint('🧠 Smart default: Declined status detected');
+    } else if (notes.contains('postponed') || notes.contains('delayed')) {
+      _selectedOptionStatus = OptionStatus.postponed;
+      debugPrint('🧠 Smart default: Postponed status detected');
+    } else if (notes.contains('canceled') || notes.contains('cancelled')) {
+      _selectedOptionStatus = OptionStatus.clientCanceled;
+      debugPrint('🧠 Smart default: Client canceled status detected');
+    } else {
+      _selectedOptionStatus = OptionStatus.pending;
+      debugPrint('🧠 Smart default: Pending status (default)');
+    }
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
   }
 
   Future<void> _loadDirectOption(String id) async {
@@ -334,6 +501,51 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
     }
   }
 
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
   @override
   void dispose() {
     _clientNameController.dispose();
@@ -344,6 +556,13 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
     _customTypeController.dispose();
     _agencyFeeController.dispose();
     _transferToDirectBookingController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
@@ -690,6 +909,201 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
     }
   }
 
+  Future<void> _handleOptionConfirmation() async {
+    debugPrint('🎯 Option confirmed! Converting to appropriate event...');
+
+    // Show confirmation dialog
+    final shouldConvert = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Confirm Option',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'This option will be converted to a job/event. This action cannot be undone. Continue?',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldConvert == true) {
+      await _convertOptionToEvent();
+    } else {
+      // Revert status back to pending if user cancels
+      setState(() {
+        _selectedOptionStatus = OptionStatus.pending;
+      });
+    }
+  }
+
+  Future<void> _convertOptionToEvent() async {
+    try {
+      debugPrint('🔄 Converting option to event...');
+
+      // Determine event type based on option type
+      EventType eventType = _getEventTypeFromOptionType(_selectedOptionType);
+
+      // Create event data from current option data
+      final eventData = {
+        'client_name': _clientNameController.text,
+        'job_type': _selectedOptionType,
+        'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
+        'location': _locationController.text,
+        'agent_id': _selectedAgentId,
+        'day_rate': double.tryParse(_dayRateController.text),
+        'currency': _selectedCurrency,
+        'status': 'scheduled',
+        'payment_status': 'unpaid',
+        'notes':
+            '${_notesController.text}\n\n[Converted from confirmed option]',
+        'created_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+
+      // Add end date if it's a date range
+      if (_isDateRange && _endDate != null) {
+        eventData['end_date'] = DateFormat('yyyy-MM-dd').format(_endDate!);
+      }
+
+      // Create the event in the appropriate collection
+      String? eventId = await _createEventInCollection(eventType, eventData);
+
+      if (eventId != null) {
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Option confirmed and converted to ${eventType.displayName}!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          // Navigate back or to the new event
+          Navigator.pop(context, true);
+        }
+      } else {
+        throw Exception('Failed to create event');
+      }
+    } catch (e) {
+      debugPrint('❌ Error converting option to event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error converting option: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+
+        // Revert status back to pending
+        setState(() {
+          _selectedOptionStatus = OptionStatus.pending;
+        });
+      }
+    }
+  }
+
+  EventType _getEventTypeFromOptionType(String optionType) {
+    switch (optionType.toLowerCase()) {
+      case 'commercial':
+      case 'editorial':
+      case 'lookbook':
+      case 'print':
+      case 'web content':
+      case 'social media':
+        return EventType.job;
+      case 'fashion show':
+      case 'runway':
+        return EventType.casting;
+      case 'on stay':
+      case 'onstay':
+      case 'travel':
+      case 'accommodation':
+      case 'hotel':
+        return EventType.onStay;
+      case 'other':
+        return EventType.other;
+      default:
+        return EventType.job; // Default to job
+    }
+  }
+
+  Future<String?> _createEventInCollection(
+      EventType eventType, Map<String, dynamic> eventData) async {
+    try {
+      switch (eventType) {
+        case EventType.job:
+          // Create in jobs collection
+          final docRef = await FirebaseFirestore.instance
+              .collection('jobs')
+              .add(eventData);
+          return docRef.id;
+        case EventType.casting:
+          // Create in castings collection
+          final docRef = await FirebaseFirestore.instance
+              .collection('castings')
+              .add(eventData);
+          return docRef.id;
+        case EventType.onStay:
+          // Create in on_stay collection with OnStay-specific format
+          final onStayData = {
+            'location_name':
+                eventData['client_name'], // Use client name as location
+            'stay_type': 'On Stay',
+            'address': eventData['location'],
+            'check_in_date': eventData['date'],
+            'check_out_date': eventData['end_date'],
+            'cost': eventData['day_rate'] ?? 0.0,
+            'currency': eventData['currency'] ?? 'USD',
+            'contact_name': eventData['client_name'],
+            'agent_id': eventData['agent_id'],
+            'status': 'confirmed',
+            'payment_status': 'unpaid',
+            'notes': eventData['notes'],
+            'created_at': eventData['created_at'],
+            'updated_at': eventData['updated_at'],
+          };
+          final docRef = await FirebaseFirestore.instance
+              .collection('on_stay')
+              .add(onStayData);
+          return docRef.id;
+        case EventType.other:
+          // Create in events collection with type 'other'
+          eventData['type'] = 'other';
+          final docRef = await FirebaseFirestore.instance
+              .collection('events')
+              .add(eventData);
+          return docRef.id;
+        default:
+          // Create in events collection
+          eventData['type'] = eventType.toString().split('.').last;
+          final docRef = await FirebaseFirestore.instance
+              .collection('events')
+              .add(eventData);
+          return docRef.id;
+      }
+    } catch (e) {
+      debugPrint('❌ Error creating event in collection: $e');
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     debugPrint('Building NewDirectOptionPage, _isEditing: $_isEditing');
@@ -721,10 +1135,11 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting form after OCR...');
-                    _handleSubmit();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting form after OCR...');
+                  //   _handleSubmit();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -733,9 +1148,13 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
               _buildSectionCard(
                 'Basic Information',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Client Name',
+                  TextFormField(
                     controller: _clientNameController,
+                    focusNode: _manualFocusNodes[0], // Client Name
+                    decoration: const InputDecoration(
+                      labelText: 'Client Name',
+                      border: OutlineInputBorder(),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter client name';
@@ -748,9 +1167,13 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
                   const SizedBox(height: 16),
                   _buildDateField(),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Location',
+                  TextFormField(
                     controller: _locationController,
+                    focusNode: _manualFocusNodes[2], // Location
+                    decoration: const InputDecoration(
+                      labelText: 'Location',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   AgentDropdown(
@@ -854,10 +1277,14 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
               _buildSectionCard(
                 'Notes',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Notes',
+                  TextFormField(
                     controller: _notesController,
+                    focusNode: _manualFocusNodes[5], // Notes
                     maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -947,9 +1374,13 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
           Row(
             children: [
               Expanded(
-                child: _formNavigation.createInputField(
-                  label: 'Custom Option Type',
+                child: TextFormField(
                   controller: _customTypeController,
+                  focusNode: _manualFocusNodes[1], // Custom Option Type
+                  decoration: const InputDecoration(
+                    labelText: 'Custom Option Type',
+                    border: OutlineInputBorder(),
+                  ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please enter option type';
@@ -979,7 +1410,7 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
               border: Border.all(color: const Color(0xFF2E2E2E)),
             ),
             child: DropdownButtonFormField<String>(
-              value: _selectedOptionType.isNotEmpty &&
+              initialValue: _selectedOptionType.isNotEmpty &&
                       _optionTypes.contains(_selectedOptionType)
                   ? _selectedOptionType
                   : null,
@@ -1137,10 +1568,14 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
         Row(
           children: [
             Expanded(
-              child: _formNavigation.createInputField(
-                label: 'Day Rate',
+              child: TextFormField(
                 controller: _dayRateController,
+                focusNode: _manualFocusNodes[3], // Day Rate
                 keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Day Rate',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
             const SizedBox(width: 16),
@@ -1164,7 +1599,7 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
                       border: Border.all(color: const Color(0xFF2E2E2E)),
                     ),
                     child: DropdownButtonFormField<String>(
-                      value: _currencies.contains(_selectedCurrency)
+                      initialValue: _currencies.contains(_selectedCurrency)
                           ? _selectedCurrency
                           : 'USD',
                       decoration: const InputDecoration(
@@ -1196,10 +1631,14 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
           ],
         ),
         const SizedBox(height: 16),
-        _formNavigation.createInputField(
-          label: 'Usage Rate (optional)',
+        TextFormField(
           controller: _usageRateController,
+          focusNode: _manualFocusNodes[4], // Usage Rate
           keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Usage Rate (optional)',
+            border: OutlineInputBorder(),
+          ),
         ),
       ],
     );
@@ -1225,7 +1664,7 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<OptionStatus>(
-            value: _selectedOptionStatus,
+            initialValue: _selectedOptionStatus,
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding:
@@ -1246,6 +1685,11 @@ class _NewDirectOptionPageState extends State<NewDirectOptionPage> {
               setState(() {
                 _selectedOptionStatus = value ?? OptionStatus.pending;
               });
+
+              // Check if status changed to confirmed
+              if (value == OptionStatus.confirmed) {
+                _handleOptionConfirmation();
+              }
             },
           ),
         ),

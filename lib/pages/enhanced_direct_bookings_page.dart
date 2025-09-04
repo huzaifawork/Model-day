@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/models/direct_booking.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/direct_bookings_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:new_flutter/widgets/export_button.dart';
+import 'package:new_flutter/widgets/clickable_contact_info.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class EnhancedDirectBookingsPage extends StatefulWidget {
   const EnhancedDirectBookingsPage({super.key});
@@ -25,11 +29,29 @@ class _EnhancedDirectBookingsPageState
   String _searchQuery = '';
   String _sortOrder = 'date-desc';
   final TextEditingController _searchController = TextEditingController();
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
 
   @override
   void initState() {
     super.initState();
+    _loadAgents();
     _loadBookings();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -42,9 +64,10 @@ class _EnhancedDirectBookingsPageState
     if (mounted) {
       setState(() => _isLoading = true);
     }
+    final currentContext = context;
     try {
       final bookings = await DirectBookingsService.list();
-      if (mounted) {
+      if (currentContext.mounted) {
         setState(() {
           _bookings = bookings;
           _filteredBookings = bookings;
@@ -96,6 +119,30 @@ class _EnhancedDirectBookingsPageState
   void _onSearchChanged(String query) {
     setState(() => _searchQuery = query);
     _applyFilters();
+  }
+
+  String _formatDateRange(DirectBooking booking) {
+    if (booking.date == null) return 'No date';
+
+    String dateText = DateFormat('MMM d, yyyy').format(booking.date!);
+
+    if (booking.isMultiDay && booking.endDate != null) {
+      dateText += ' - ${DateFormat('MMM d, yyyy').format(booking.endDate!)}';
+    }
+
+    return dateText;
+  }
+
+  String _formatShortDateRange(DirectBooking booking) {
+    if (booking.date == null) return 'No date';
+
+    String dateText = DateFormat('MMM d').format(booking.date!);
+
+    if (booking.isMultiDay && booking.endDate != null) {
+      dateText += ' - ${DateFormat('MMM d').format(booking.endDate!)}';
+    }
+
+    return dateText;
   }
 
   @override
@@ -494,12 +541,12 @@ class _EnhancedDirectBookingsPageState
                     const Icon(Icons.location_on, size: 12, color: Colors.grey),
                     const SizedBox(width: 4),
                     Expanded(
-                      child: Text(
-                        booking.location!,
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      child: ClickableContactInfo(
+                        text: booking.location!,
+                        type: ContactType.location,
+                        showIcon: false,
+                        textColor: Colors.blue[400],
+                        fontSize: 11,
                       ),
                     ),
                   ],
@@ -574,7 +621,7 @@ class _EnhancedDirectBookingsPageState
                         size: 12, color: Colors.grey),
                     const SizedBox(width: 4),
                     Text(
-                      DateFormat('MMM d').format(booking.date!),
+                      _formatShortDateRange(booking),
                       style: const TextStyle(color: Colors.grey, fontSize: 11),
                     ),
                   ],
@@ -693,7 +740,7 @@ class _EnhancedDirectBookingsPageState
                       ),
                     if (booking.date != null)
                       Text(
-                        DateFormat('MMM d, yyyy').format(booking.date!),
+                        _formatDateRange(booking),
                         style:
                             const TextStyle(color: Colors.grey, fontSize: 12),
                       ),
@@ -885,52 +932,343 @@ class _EnhancedDirectBookingsPageState
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(booking.clientName),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (booking.bookingType != null) ...[
-                  Text('Type: ${booking.bookingType}'),
-                  const SizedBox(height: 8),
-                ],
-                if (booking.date != null) ...[
-                  Text(
-                      'Date: ${DateFormat('MMM d, yyyy').format(booking.date!)}'),
-                  const SizedBox(height: 8),
-                ],
-                if (booking.location != null) ...[
-                  Text('Location: ${booking.location}'),
-                  const SizedBox(height: 8),
-                ],
-                if (booking.rate != null) ...[
-                  Text(
-                      'Rate: ${_getCurrencySymbol(booking.currency)}${booking.rate}'),
-                  const SizedBox(height: 8),
-                ],
-                Text('Status: ${booking.status ?? 'Unknown'}'),
-                const SizedBox(height: 8),
-                Text('Payment: ${booking.paymentStatus ?? 'Unknown'}'),
-              ],
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            booking.clientName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _buildDirectBookingDetails(booking),
+              ),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.goldColor,
+              ),
               child: const Text('Close'),
             ),
-            TextButton(
+            ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _editBooking(booking);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.goldColor,
+                foregroundColor: Colors.black,
+              ),
               child: const Text('Edit'),
             ),
           ],
         );
       },
     );
+  }
+
+  List<Widget> _buildDirectBookingDetails(DirectBooking booking) {
+    List<Widget> details = [];
+
+    // Booking Type
+    if (booking.bookingType != null && booking.bookingType!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Type', booking.bookingType!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date and Time
+    if (booking.date != null) {
+      details.addAll([
+        _buildDetailRow('Date', _formatDateRange(booking)),
+        const SizedBox(height: 8),
+      ]);
+      if (booking.time != null) {
+        details.addAll([
+          _buildDetailRow('Time',
+              '${booking.time}${booking.endTime != null ? ' - ${booking.endTime}' : ''}'),
+          const SizedBox(height: 8),
+        ]);
+      }
+    }
+
+    // Location
+    if (booking.location != null && booking.location!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: booking.location!,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate
+    if (booking.rate != null && booking.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Rate',
+            '${_getCurrencySymbol(booking.currency)}${booking.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Extra Hours
+    if (booking.extraHours != null && booking.extraHours!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Extra Hours', booking.extraHours!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Booking Agent
+    if (booking.bookingAgent != null && booking.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', booking.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Contact Information
+    if (booking.phone != null && booking.phone!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Phone:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: booking.phone!,
+                type: ContactType.phone,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (booking.email != null && booking.email!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Email:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: booking.email!,
+                type: ContactType.email,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', (booking.status ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Payment Status
+    details.addAll([
+      _buildDetailRow(
+          'Payment', (booking.paymentStatus ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Notes
+    if (booking.notes != null && booking.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', booking.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentIdOrName) {
+    // Get agent from cache, fallback to creating a dummy agent with the provided name
+    final agent = _agentCache[agentIdOrName] ?? Agent(name: agentIdOrName);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent.name,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _sendWhatsAppToAgent(agent),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.chat,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (context.mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
   }
 
   void _editBooking(DirectBooking booking) async {
@@ -973,10 +1311,11 @@ class _EnhancedDirectBookingsPageState
   Future<void> _deleteBooking(DirectBooking booking) async {
     if (booking.id == null) return;
 
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     try {
       final success = await DirectBookingsService.delete(booking.id!);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text(success
                 ? 'Booking deleted successfully'
@@ -990,7 +1329,7 @@ class _EnhancedDirectBookingsPageState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        scaffoldMessenger.showSnackBar(
           SnackBar(
             content: Text('Error deleting booking: $e'),
             backgroundColor: Colors.red,

@@ -266,7 +266,7 @@ class _AdminManagementPageState extends State<AdminManagementPage> {
                           ),
                           const SizedBox(height: 8),
                           DropdownButtonFormField<String>(
-                            value: _statusFilter,
+                            initialValue: _statusFilter,
                             decoration: const InputDecoration(
                               border: OutlineInputBorder(),
                               focusedBorder: OutlineInputBorder(
@@ -311,7 +311,7 @@ class _AdminManagementPageState extends State<AdminManagementPage> {
                           const SizedBox(width: 16),
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              value: _statusFilter,
+                              initialValue: _statusFilter,
                               decoration: const InputDecoration(
                                 border: OutlineInputBorder(),
                                 focusedBorder: OutlineInputBorder(

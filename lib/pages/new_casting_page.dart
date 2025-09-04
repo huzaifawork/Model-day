@@ -7,6 +7,7 @@ import 'package:new_flutter/widgets/ui/agent_dropdown.dart';
 import 'package:new_flutter/widgets/ui/form_navigation_helper.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:intl/intl.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/widgets/ocr_upload_widget.dart';
 
 class NewCastingPage extends StatefulWidget {
@@ -32,6 +33,11 @@ class _NewCastingPageState extends State<NewCastingPage> {
 
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
+
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
 
   String? _selectedAgentId;
   String _status = 'pending';
@@ -70,6 +76,9 @@ class _NewCastingPageState extends State<NewCastingPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (4 text fields: Client, Job Type, Location, Notes)
+    _manualFocusNodes = List.generate(4, (index) => FocusNode());
     // Handle both widget.casting and route arguments
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
@@ -144,13 +153,14 @@ class _NewCastingPageState extends State<NewCastingPage> {
   }
 
   // OCR data extraction handler - similar to job page
-  void _handleOcrDataExtracted(Map<String, dynamic> extractedData) {
+  Future<void> _handleOcrDataExtracted(
+      Map<String, dynamic> extractedData) async {
     debugPrint('=== CASTING PAGE FORM HANDLER CALLED ===');
     debugPrint('OCR Data received: $extractedData');
     debugPrint('Keys received: ${extractedData.keys.toList()}');
     setState(() {
-      // Set default date to July 20, 2025
-      _date = DateTime(2025, 7, 20);
+      // Set default date to current date
+      _date = DateTime.now();
 
       // Populate form fields with extracted data
       if (extractedData['clientName'] != null) {
@@ -165,15 +175,11 @@ class _NewCastingPageState extends State<NewCastingPage> {
         debugPrint('Setting notes: ${extractedData['notes']}');
         _notesController.text = extractedData['notes'];
       }
+      // Agent matching moved outside setState - see below
       if (extractedData['bookingAgent'] != null) {
-        debugPrint('Setting agent: ${extractedData['bookingAgent']}');
-        // Find agent by name
-        final agentName =
-            extractedData['bookingAgent'].toString().toLowerCase();
-        if (agentName.contains('ogbhai')) {
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj'; // ogbhai's ID
-          debugPrint('Agent ID set to: $_selectedAgentId');
-        }
+        debugPrint('✅ Agent will be set after setState');
+      } else {
+        debugPrint('❌ No agent found in OCR data');
       }
       if (extractedData['jobType'] != null ||
           extractedData['castingType'] != null) {
@@ -233,12 +239,153 @@ class _NewCastingPageState extends State<NewCastingPage> {
     });
     debugPrint('✅ OCR data extraction completed for casting');
 
-    // Auto-submit after OCR processing
-    Future.delayed(const Duration(milliseconds: 500), () {
-      debugPrint('🚀 Auto-submitting casting after OCR...');
-      _saveCasting();
-    });
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(extractedData);
+
+    // Handle agent matching after setState (async operation)
+    if (extractedData['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${extractedData['bookingAgent']}');
+      await _matchAgentIntelligently(extractedData['bookingAgent'].toString());
+    }
+
+    // Auto-submit disabled for testing
+    // Future.delayed(const Duration(milliseconds: 500), () {
+    //   debugPrint('🚀 Auto-submitting casting after OCR...');
+    //   _saveCasting();
+    // });
   }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+  
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+    
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
+
+
+
 
   @override
   void dispose() {
@@ -248,6 +395,13 @@ class _NewCastingPageState extends State<NewCastingPage> {
     _startTimeController.dispose();
     _endTimeController.dispose();
     _notesController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
@@ -329,17 +483,22 @@ class _NewCastingPageState extends State<NewCastingPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting casting form after OCR...');
-                    _saveCasting();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting casting form after OCR...');
+                  //   _saveCasting();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
               // Client
-              _formNavigation.createInputField(
-                label: 'Client *',
+              TextFormField(
                 controller: _clientController,
+                focusNode: _manualFocusNodes[0], // Client
+                decoration: const InputDecoration(
+                  labelText: 'Client *',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter client name';
@@ -356,7 +515,7 @@ class _NewCastingPageState extends State<NewCastingPage> {
                     labelText: 'Job Type *',
                     border: OutlineInputBorder(),
                   ),
-                  value: _jobTypeController.text.isNotEmpty &&
+                  initialValue: _jobTypeController.text.isNotEmpty &&
                           _jobTypes.contains(_jobTypeController.text)
                       ? _jobTypeController.text
                       : null,
@@ -391,6 +550,7 @@ class _NewCastingPageState extends State<NewCastingPage> {
                     Expanded(
                       child: TextFormField(
                         controller: _jobTypeController,
+                        focusNode: _manualFocusNodes[1], // Custom Job Type
                         decoration: const InputDecoration(
                           labelText: 'Custom Job Type *',
                           border: OutlineInputBorder(),
@@ -542,9 +702,13 @@ class _NewCastingPageState extends State<NewCastingPage> {
               const SizedBox(height: 16),
 
               // Location
-              _formNavigation.createInputField(
-                label: 'Location *',
+              TextFormField(
                 controller: _locationController,
+                focusNode: _manualFocusNodes[2], // Location
+                decoration: const InputDecoration(
+                  labelText: 'Location *',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a location';
@@ -579,7 +743,7 @@ class _NewCastingPageState extends State<NewCastingPage> {
                   labelText: 'Status',
                   border: OutlineInputBorder(),
                 ),
-                value: _statuses.contains(_status) ? _status : null,
+                initialValue: _statuses.contains(_status) ? _status : null,
                 items: _statuses.map((status) {
                   return DropdownMenuItem(
                     value: status,
@@ -677,10 +841,14 @@ class _NewCastingPageState extends State<NewCastingPage> {
               ],
 
               // Notes
-              _formNavigation.createInputField(
-                label: 'Notes',
+              TextFormField(
                 controller: _notesController,
+                focusNode: _manualFocusNodes[3], // Notes
                 maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 32),
               if (_error != null) ...[

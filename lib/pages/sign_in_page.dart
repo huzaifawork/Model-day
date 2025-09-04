@@ -52,7 +52,8 @@ class _SignInPageState extends State<SignInPage> {
       debugPrint('✅ SignInPage - Sign in successful');
 
       if (mounted) {
-        debugPrint('✅ SignInPage - Login successful, letting auth system handle routing');
+        debugPrint(
+            '✅ SignInPage - Login successful, letting auth system handle routing');
         // Let the auth system and landing page handle admin detection and routing
         // This prevents conflicts between multiple admin checking systems
         Navigator.pushReplacementNamed(context, '/');
@@ -60,8 +61,15 @@ class _SignInPageState extends State<SignInPage> {
     } catch (e) {
       debugPrint('❌ SignInPage - Sign in failed: $e');
       if (mounted) {
+        String friendlyError = 'Invalid email or password. Please try again.';
+        // Provide clearer guidance if the account is Google-only
+        if (e.toString().contains('requires-google-signin') ||
+            e.toString().contains('google')) {
+          friendlyError =
+              'This email is registered with Google. Please use "Sign in with Google".';
+        }
         setState(() {
-          _error = 'Invalid email or password. Please try again.';
+          _error = friendlyError;
           _isLoading = false;
         });
       }

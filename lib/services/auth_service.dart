@@ -156,6 +156,9 @@ class AuthService extends ChangeNotifier {
         _connectivityTested = true;
       }
 
+      // Determine authentication method
+      final authMethod = _determineAuthMethod(user);
+      
       // Use direct Firestore calls for all platforms - simpler and more reliable
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -173,9 +176,23 @@ class AuthService extends ChangeNotifier {
           'updatedAt': FieldValue.serverTimestamp(),
           'onboarding_tour_seen': false,
           'onboarding_completed': false,
+          'auth_method': authMethod,
+          'auth_methods': [authMethod],
+          'password_linked': authMethod == 'password',
         });
-        debugPrint('User profile created for: ${user.email}');
+        debugPrint('User profile created for: ${user.email} with auth method: $authMethod');
       } else {
+        // Update existing user with auth method if not present
+        final userData = userDoc.data();
+        if (userData != null && !userData.containsKey('auth_method')) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+            'auth_method': authMethod,
+            'auth_methods': FieldValue.arrayUnion([authMethod]),
+            'password_linked': userData['password_linked'] ?? (authMethod == 'password'),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          debugPrint('Updated existing user profile with auth method: $authMethod');
+        }
         debugPrint('User profile already exists for: ${user.email}');
       }
     } catch (e) {
@@ -184,6 +201,20 @@ class AuthService extends ChangeNotifier {
     } finally {
       _profileCreationInProgress = false;
     }
+  }
+  
+  /// Determine the authentication method used
+  String _determineAuthMethod(User user) {
+    // Check provider data to determine how user signed in
+    for (final providerData in user.providerData) {
+      if (providerData.providerId == 'google.com') {
+        return 'google.com';
+      } else if (providerData.providerId == 'password') {
+        return 'password';
+      }
+    }
+    // Default to password if we can't determine
+    return 'password';
   }
 
   /// Test Firestore connectivity
@@ -264,6 +295,36 @@ class AuthService extends ChangeNotifier {
     try {
       _loading = true;
       notifyListeners();
+
+      // Check available sign-in methods for this email to provide clearer UX
+      // Especially important for users who originally signed up with Google
+      // Using try-catch instead of fetchSignInMethodsForEmail which is deprecated
+      try {
+        // Try to sign in with empty password to check if email exists with password provider
+        await _auth.signInWithEmailAndPassword(
+          email: email.trim(),
+          password: 'non-existent-password-to-check-account-existence',
+        );
+      } catch (e) {
+        // If error is user-not-found, the email doesn't exist
+        // If error is wrong-password, the email exists with password provider
+        // If error is account-exists-with-different-credential, it's likely a Google account
+        if (e is FirebaseAuthException && e.code == 'account-exists-with-different-credential') {
+           _loading = false;
+           notifyListeners();
+           throw FirebaseAuthException(
+             code: 'requires-google-signin',
+             message:
+                 'This email is registered with Google. Please use Google sign-in.',
+           );
+         } else if (e is FirebaseAuthException && e.code == 'wrong-password') {
+           // Email exists with password provider, continue with normal sign in
+           // We'll let the actual sign in attempt below handle the authentication
+         } else {
+           // For other errors, rethrow to be handled by the caller
+           rethrow;
+         }
+       }
 
       final credential = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
@@ -660,8 +721,8 @@ class AuthService extends ChangeNotifier {
       debugPrint(
           '🔄 AuthService - Sending password reset email to: ${email.split('@')[0]}@...');
 
+      // Call Firebase Auth directly without Firestore queries
       await _auth.sendPasswordResetEmail(email: email.trim());
-
       debugPrint('✅ AuthService - Password reset email sent successfully');
 
       _loading = false;
@@ -673,6 +734,9 @@ class AuthService extends ChangeNotifier {
       rethrow;
     }
   }
+
+  /// Link password authentication to existing Google account
+  // Removed unused methods _linkPasswordToGoogleAccount and _generateSecurePassword
 
   /// Sign out
   Future<void> signOut() async {

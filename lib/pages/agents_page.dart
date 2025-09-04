@@ -4,10 +4,11 @@ import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/widgets/ui/button.dart' as ui;
 import 'package:new_flutter/widgets/ui/input.dart' as ui;
 import 'package:new_flutter/widgets/ui/card.dart' as ui;
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/agent.dart';
+import '../models/agency.dart';
 import '../providers/agents_provider.dart';
+import '../providers/agencies_provider.dart';
+import '../widgets/clickable_contact_info.dart';
 
 class AgentsPage extends StatefulWidget {
   const AgentsPage({super.key});
@@ -31,18 +32,6 @@ class _AgentsPageState extends State<AgentsPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
-  String _cleanPhoneNumber(String phone) {
-    // Remove all non-digit characters except +
-    return phone.replaceAll(RegExp(r'[^\d+]'), '');
   }
 
   Future<void> _showDeleteConfirmation(Agent agent) async {
@@ -99,195 +88,316 @@ class _AgentsPageState extends State<AgentsPage> {
   }
 
   Widget _buildAgentCard(Agent agent) {
-    return ui.Card(
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Consumer<AgenciesProvider>(
+      builder: (context, agenciesProvider, child) {
+        // Get agency details if agencyId is available
+        Agency? agencyDetails;
+        if (agent.agencyId != null) {
+          agencyDetails = agenciesProvider.getAgencyById(agent.agencyId!);
+        }
+
+        return ui.Card(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        agent.name,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          height: 1.3,
-                          color: Colors.white,
-                        ),
-                      ),
-                      if (agent.agency != null) ...[
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.business_outlined,
-                              size: 16,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                agent.agency!,
-                                style: TextStyle(
-                                  color: Colors.grey[400],
-                                  fontSize: 14,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+                // Header with name and actions
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: () async {
-                        final result = await Navigator.pushNamed(
-                          context,
-                          '/new-agent',
-                          arguments: agent.id,
-                        );
-                        if (result == true && mounted) {
-                          context.read<AgentsProvider>().loadAgents();
-                        }
-                      },
-                      tooltip: 'Edit',
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () {
-                        _showDeleteConfirmation(agent);
-                      },
-                      tooltip: 'Delete',
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (agent.email != null || agent.phone != null) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[800]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (agent.email != null) ...[
-                      InkWell(
-                        onTap: () => _launchUrl('mailto:${agent.email}'),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.mail_outline,
-                              size: 16,
-                              color: Colors.blue[300],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            agent.name,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
+                              height: 1.3,
+                              color: Colors.white,
                             ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                agent.email!,
-                                style: TextStyle(
-                                  color: Colors.blue[300],
-                                  fontSize: 14,
-                                ),
-                                overflow: TextOverflow.ellipsis,
+                          ),
+                          if (agent.city != null || agent.country != null) ...[
+                            const SizedBox(height: 4),
+                            ClickableContactInfo(
+                              text: [agent.city, agent.country]
+                                  .where((e) => e != null && e.isNotEmpty)
+                                  .join(', '),
+                              type: ContactType.location,
+                              showIcon: true,
+                              icon: Icons.location_on_outlined,
+                              iconColor: Colors.grey[500],
+                              fontSize: 13,
+                              textStyle: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 13,
                               ),
                             ),
                           ],
-                        ),
+                        ],
                       ),
-                    ],
-                    if (agent.phone != null) ...[
-                      if (agent.email != null) const SizedBox(height: 8),
-                      InkWell(
-                        onTap: () => _launchUrl('https://wa.me/${_cleanPhoneNumber(agent.phone!)}'),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.chat_outlined,
-                              size: 16,
-                              color: Colors.blue[300],
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                agent.phone!,
-                                style: TextStyle(
-                                  color: Colors.blue[300],
-                                  fontSize: 14,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-            if (agent.notes != null && agent.notes!.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[800]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    ),
                     Row(
                       children: [
-                        Icon(
-                          Icons.notes_outlined,
-                          size: 18,
-                          color: Colors.grey[300],
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                          onPressed: () async {
+                            final agentsProvider = context.read<AgentsProvider>();
+                            final result = await Navigator.pushNamed(
+                              context,
+                              '/new-agent',
+                              arguments: agent.id,
+                            );
+                            if (result != null && mounted) {
+                              agentsProvider.loadAgents();
+                            }
+                          },
+                          tooltip: 'Edit',
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.grey[800],
+                            foregroundColor: Colors.grey[300],
+                          ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Notes',
-                          style: TextStyle(
-                            color: Colors.grey[300],
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          onPressed: () {
+                            _showDeleteConfirmation(agent);
+                          },
+                          tooltip: 'Delete',
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.red[900],
+                            foregroundColor: Colors.red[300],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      agent.notes!,
-                      style: TextStyle(
-                        color: Colors.grey[300],
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
                   ],
                 ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ).animate().fadeIn().slideX();
+
+                const SizedBox(height: 20),
+
+                // Agency Information Section
+                if (agencyDetails != null || agent.agency != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900]?.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[800]!),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[900]?.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.business_outlined,
+                                size: 18,
+                                color: Colors.blue[300],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    agencyDetails?.name ??
+                                        agent.agency ??
+                                        'Unknown Agency',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (agencyDetails?.agencyType != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      agencyDetails!.agencyType!,
+                                      style: TextStyle(
+                                        color: Colors.grey[400],
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (agencyDetails != null &&
+                            (agencyDetails.city != null ||
+                                agencyDetails.country != null)) ...[
+                          const SizedBox(height: 12),
+                          ClickableContactInfo(
+                            text: [agencyDetails.city, agencyDetails.country]
+                                .where((e) => e != null && e.isNotEmpty)
+                                .join(', '),
+                            type: ContactType.location,
+                            showIcon: true,
+                            icon: Icons.location_on_outlined,
+                            iconColor: Colors.grey[500],
+                            fontSize: 13,
+                            textStyle: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // Contact Information Section
+                if (agent.email != null ||
+                    agent.phone != null ||
+                    agent.instagram != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900]?.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[800]!),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color:
+                                    Colors.green[900]?.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.phone,
+                                size: 18,
+                                color: Colors.green[300],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Contact Information',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (agent.email != null) ...[
+                              ClickableContactInfo(
+                                text: agent.email!,
+                                type: ContactType.email,
+                                showIcon: true,
+                                textColor: Colors.blue[400],
+                              ),
+                            ],
+                            if (agent.phone != null) ...[
+                              if (agent.email != null)
+                                const SizedBox(height: 12),
+                              ClickableContactInfo(
+                                text: agent.phone!,
+                                type: ContactType.whatsapp,
+                                showIcon: true,
+                                textColor: Colors.blue[400],
+                              ),
+                            ],
+                            if (agent.instagram != null) ...[
+                              if (agent.email != null || agent.phone != null)
+                                const SizedBox(height: 12),
+                              ClickableContactInfo(
+                                text: agent.instagram!,
+                                type: ContactType.instagram,
+                                showIcon: true,
+                                textColor: Colors.blue[400],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Notes Section (only if notes exist and don't contain Instagram)
+                if (agent.notes != null && agent.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900]?.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[800]!),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color:
+                                    Colors.orange[900]?.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.notes_outlined,
+                                size: 18,
+                                color: Colors.orange[300],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Notes',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          agent.notes!,
+                          style: TextStyle(
+                            color: Colors.grey[300],
+                            fontSize: 14,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override

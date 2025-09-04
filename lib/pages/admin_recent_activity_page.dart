@@ -13,13 +13,62 @@ class AdminRecentActivityPage extends StatefulWidget {
 }
 
 class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
+  String _selectedFilter = 'all';
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AdminLayout(
-      title: 'Recent Activity',
+      title: 'All Activities',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Filters and search
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: AppTheme.cardDecoration,
+            child: Column(
+              children: [
+                // Search bar
+                TextField(
+                  controller: _searchController,
+                  decoration: const InputDecoration(
+                    hintText: 'Search activities...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  onChanged: (value) {
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                // Filter chips
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    _buildFilterChip('all', 'All Activities'),
+                    _buildFilterChip('user', 'User Activities'),
+                    _buildFilterChip('admin', 'Admin Activities'),
+                    _buildFilterChip('job', 'Jobs'),
+                    _buildFilterChip('casting', 'Castings'),
+                    _buildFilterChip('support', 'Support'),
+                    _buildFilterChip('security', 'Security'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           // Activity list
           Expanded(
             child: StreamBuilder<List<RecentActivity>>(
@@ -55,12 +104,8 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
                 }
 
                 final activities = snapshot.data ?? [];
-                // Only show admin login and logout activities
-                final filteredActivities = activities
-                    .where((activity) =>
-                        activity.type == 'admin_login' ||
-                        activity.type == 'admin_logout')
-                    .toList();
+                // Filter and search activities
+                final filteredActivities = _filterActivities(activities);
 
                 if (filteredActivities.isEmpty) {
                   return Container(
@@ -102,6 +147,80 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  List<RecentActivity> _filterActivities(List<RecentActivity> activities) {
+    return activities.where((activity) {
+      // Apply type filter
+      if (_selectedFilter != 'all') {
+        switch (_selectedFilter) {
+          case 'user':
+            if (!['user_registered', 'user_login', 'user_logout', 'user_status_changed', 'user_deleted', 'profile_updated'].contains(activity.type)) {
+              return false;
+            }
+            break;
+          case 'admin':
+            if (!['admin_login', 'admin_logout'].contains(activity.type)) {
+              return false;
+            }
+            break;
+          case 'job':
+            if (!['job_created'].contains(activity.type)) {
+              return false;
+            }
+            break;
+          case 'casting':
+            if (!['casting_created'].contains(activity.type)) {
+              return false;
+            }
+            break;
+          case 'support':
+            if (!['support_message'].contains(activity.type)) {
+              return false;
+            }
+            break;
+          case 'security':
+            if (!['password_reset_sent', 'password_changed'].contains(activity.type)) {
+              return false;
+            }
+            break;
+        }
+      }
+
+      // Apply search filter
+      if (_searchQuery.isNotEmpty) {
+        final description = activity.description.toLowerCase();
+        final userEmail = activity.userEmail?.toLowerCase() ?? '';
+        final type = activity.type.toLowerCase();
+        
+        if (!description.contains(_searchQuery) && 
+            !userEmail.contains(_searchQuery) && 
+            !type.contains(_searchQuery)) {
+          return false;
+        }
+      }
+
+      return true;
+    }).toList();
+  }
+
+  Widget _buildFilterChip(String value, String label) {
+    final isSelected = _selectedFilter == value;
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _selectedFilter = value;
+        });
+      },
+      selectedColor: AppTheme.goldColor.withValues(alpha: 0.2),
+      checkmarkColor: AppTheme.goldColor,
+      labelStyle: TextStyle(
+        color: isSelected ? AppTheme.goldColor : AppTheme.textSecondary,
+        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
       ),
     );
   }
@@ -226,6 +345,10 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
         return 'JOB';
       case 'casting_created':
         return 'CASTING';
+      case 'test_created':
+        return 'TEST';
+      case 'event_created':
+        return 'EVENT';
       case 'admin_login':
         return 'ADMIN';
       case 'admin_logout':
@@ -238,8 +361,18 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
         return 'SECURITY';
       case 'password_changed':
         return 'SECURITY';
+      case 'user_login':
+        return 'USER';
+      case 'user_logout':
+        return 'USER';
+      case 'profile_updated':
+        return 'PROFILE';
+      case 'booking_created':
+        return 'BOOKING';
+      case 'meeting_created':
+        return 'MEETING';
       default:
-        return type.toUpperCase();
+        return type.toUpperCase().replaceAll('_', ' ');
     }
   }
 
@@ -253,6 +386,10 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
         return Icons.work;
       case 'casting_created':
         return Icons.movie;
+      case 'test_created':
+        return Icons.quiz;
+      case 'event_created':
+        return Icons.event;
       case 'admin_login':
         return Icons.login;
       case 'admin_logout':
@@ -265,6 +402,16 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
         return Icons.email;
       case 'password_changed':
         return Icons.lock_reset;
+      case 'user_login':
+        return Icons.login;
+      case 'user_logout':
+        return Icons.logout;
+      case 'profile_updated':
+        return Icons.edit;
+      case 'booking_created':
+        return Icons.book_online;
+      case 'meeting_created':
+        return Icons.meeting_room;
       default:
         return Icons.info;
     }
@@ -280,6 +427,10 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
         return Colors.blue;
       case 'casting_created':
         return Colors.purple;
+      case 'test_created':
+        return Colors.teal;
+      case 'event_created':
+        return Colors.indigo;
       case 'admin_login':
         return AppTheme.successColor;
       case 'admin_logout':
@@ -292,6 +443,16 @@ class _AdminRecentActivityPageState extends State<AdminRecentActivityPage> {
         return Colors.blue;
       case 'password_changed':
         return AppTheme.textMuted;
+      case 'user_login':
+        return Colors.green;
+      case 'user_logout':
+        return Colors.grey;
+      case 'profile_updated':
+        return Colors.cyan;
+      case 'booking_created':
+        return Colors.deepOrange;
+      case 'meeting_created':
+        return Colors.brown;
       default:
         return AppTheme.textMuted;
     }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// A widget that makes contact information clickable with appropriate actions
@@ -30,7 +31,7 @@ class ClickableContactInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final defaultIconColor = iconColor ?? Colors.blue[600];
     final defaultTextColor = textColor ?? Colors.blue[600];
-    
+
     return InkWell(
       onTap: () => _handleTap(context),
       child: Padding(
@@ -49,11 +50,11 @@ class ClickableContactInfo extends StatelessWidget {
             Flexible(
               child: Text(
                 text,
-                style: textStyle ?? TextStyle(
-                  color: defaultTextColor,
-                  fontSize: fontSize ?? 14,
-                  decoration: TextDecoration.underline,
-                ),
+                style: textStyle ??
+                    TextStyle(
+                      color: defaultTextColor,
+                      fontSize: fontSize ?? 14,
+                    ),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -66,13 +67,14 @@ class ClickableContactInfo extends StatelessWidget {
   IconData _getDefaultIcon() {
     switch (type) {
       case ContactType.phone:
-        return Icons.chat_outlined; // Changed to chat icon since it opens WhatsApp
+        return Icons
+            .chat_outlined; // Changed to chat icon since it opens WhatsApp
       case ContactType.whatsapp:
         return Icons.chat_outlined;
       case ContactType.email:
         return Icons.mail_outline;
       case ContactType.instagram:
-        return Icons.camera_alt_outlined;
+        return FontAwesomeIcons.instagram;
       case ContactType.location:
         return Icons.location_on_outlined;
       case ContactType.address:
@@ -176,7 +178,7 @@ class AutoClickableText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final contactType = _detectContactType(text);
-    
+
     if (contactType != null) {
       return ClickableContactInfo(
         text: text,
@@ -208,10 +210,11 @@ class AutoClickableText extends StatelessWidget {
           Flexible(
             child: Text(
               label != null ? '$label: $text' : text,
-              style: textStyle ?? TextStyle(
-                color: textColor ?? Colors.grey[700],
-                fontSize: fontSize ?? 14,
-              ),
+              style: textStyle ??
+                  TextStyle(
+                    color: textColor ?? Colors.grey[700],
+                    fontSize: fontSize ?? 14,
+                  ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -225,17 +228,17 @@ class AutoClickableText extends StatelessWidget {
     if (RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(text)) {
       return ContactType.email;
     }
-    
+
     // Phone number detection (basic)
     if (RegExp(r'^[\+]?[\d\s\-\(\)]{7,}$').hasMatch(text)) {
       return ContactType.phone;
     }
-    
+
     // Instagram handle detection
     if (text.startsWith('@') || text.toLowerCase().contains('instagram')) {
       return ContactType.instagram;
     }
-    
+
     return null;
   }
 }

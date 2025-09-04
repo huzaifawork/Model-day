@@ -8,6 +8,7 @@ class AppLayout extends StatefulWidget {
   final Widget child;
   final String? title;
   final List<Widget>? actions;
+  final Widget? floatingActionButton;
 
   const AppLayout({
     super.key,
@@ -15,6 +16,7 @@ class AppLayout extends StatefulWidget {
     required this.child,
     this.title,
     this.actions,
+    this.floatingActionButton,
   });
 
   @override
@@ -37,14 +39,16 @@ class _AppLayoutState extends State<AppLayout> {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final isDesktop = screenWidth > 800; // Further lowered to 800 for better browser support
+    final isDesktop =
+        screenWidth > 800; // Further lowered to 800 for better browser support
     final isTablet = screenWidth > 600 && screenWidth <= 800;
     final isMobile = screenWidth <= 600;
 
-
-
     // Set initial sidebar state for desktop (only once and if user hasn't manually collapsed it)
-    if (!isSidebarOpen && isDesktop && !_userHasCollapsedSidebar && !_initialSidebarSet) {
+    if (!isSidebarOpen &&
+        isDesktop &&
+        !_userHasCollapsedSidebar &&
+        !_initialSidebarSet) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           setState(() {
@@ -89,7 +93,8 @@ class _AppLayoutState extends State<AppLayout> {
                     currentPage: widget.currentPage,
                     onCloseSidebar: () => setState(() {
                       isSidebarOpen = false;
-                      _userHasCollapsedSidebar = true; // Mark as manually collapsed
+                      _userHasCollapsedSidebar =
+                          true; // Mark as manually collapsed
                     }),
                     selectedIndex: selectedIndex,
                     onItemSelected: _handleItemSelected,
@@ -101,7 +106,8 @@ class _AppLayoutState extends State<AppLayout> {
               if (isDesktop && !isSidebarOpen)
                 Container(
                   width: 60,
-                  color: const Color(0xFF1A1A1A), // Use dark gray instead of pure black
+                  color: const Color(
+                      0xFF1A1A1A), // Use dark gray instead of pure black
                   child: Column(
                     children: [
                       const SizedBox(height: 20),
@@ -109,7 +115,8 @@ class _AppLayoutState extends State<AppLayout> {
                         icon: const Icon(Icons.menu, color: Colors.white),
                         onPressed: () => setState(() {
                           isSidebarOpen = true;
-                          _userHasCollapsedSidebar = false; // Reset the flag when manually opened
+                          _userHasCollapsedSidebar =
+                              false; // Reset the flag when manually opened
                         }),
                       ),
                     ],
@@ -205,6 +212,7 @@ class _AppLayoutState extends State<AppLayout> {
             ),
         ],
       ),
+      floatingActionButton: widget.floatingActionButton,
     );
   }
 }

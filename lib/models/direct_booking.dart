@@ -9,8 +9,10 @@ class DirectBooking {
   final String? location;
   final String? bookingAgent;
   final DateTime? date;
+  final DateTime? endDate;
   final String? time;
   final String? endTime;
+  final bool isMultiDay;
   final double? rate;
   final String? currency;
   final String? extraHours;
@@ -35,8 +37,10 @@ class DirectBooking {
     this.location,
     this.bookingAgent,
     this.date,
+    this.endDate,
     this.time,
     this.endTime,
+    this.isMultiDay = false,
     this.rate,
     this.currency = 'USD',
     this.extraHours,
@@ -64,8 +68,10 @@ class DirectBooking {
         location: json['location']?.toString(),
         bookingAgent: json['booking_agent']?.toString(),
         date: _parseDateTime(json['date']),
+        endDate: _parseDateTime(json['end_date']),
         time: json['time']?.toString(),
         endTime: json['end_time']?.toString(),
+        isMultiDay: json['is_multi_day'] ?? false,
         rate: _parseDouble(json['rate']),
         currency: json['currency']?.toString() ?? 'USD',
         extraHours: json['extra_hours']?.toString(),
@@ -126,8 +132,10 @@ class DirectBooking {
       'location': location,
       'booking_agent': bookingAgent,
       'date': date?.toIso8601String().split('T')[0],
+      'end_date': endDate?.toIso8601String().split('T')[0],
       'time': time,
       'end_time': endTime,
+      'is_multi_day': isMultiDay,
       'rate': rate,
       'currency': currency,
       'extra_hours': extraHours,
@@ -154,8 +162,10 @@ class DirectBooking {
     String? location,
     String? bookingAgent,
     DateTime? date,
+    DateTime? endDate,
     String? time,
     String? endTime,
+    bool? isMultiDay,
     double? rate,
     String? currency,
     String? extraHours,
@@ -180,8 +190,10 @@ class DirectBooking {
       location: location ?? this.location,
       bookingAgent: bookingAgent ?? this.bookingAgent,
       date: date ?? this.date,
+      endDate: endDate ?? this.endDate,
       time: time ?? this.time,
       endTime: endTime ?? this.endTime,
+      isMultiDay: isMultiDay ?? this.isMultiDay,
       rate: rate ?? this.rate,
       currency: currency ?? this.currency,
       extraHours: extraHours ?? this.extraHours,
@@ -195,5 +207,15 @@ class DirectBooking {
       files: files ?? this.files,
       notes: notes ?? this.notes,
     );
+  }
+
+  /// Get the start date as a DateTime object
+  DateTime? get startDateTime {
+    return date;
+  }
+
+  /// Get the end date as a DateTime object
+  DateTime? get endDateTime {
+    return endDate;
   }
 }

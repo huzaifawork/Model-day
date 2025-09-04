@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../models/test.dart';
+import '../models/agent.dart';
 import '../providers/tests_provider.dart';
+import '../services/agents_service.dart';
 import '../widgets/app_layout.dart';
 import '../widgets/ui/badge.dart' as ui;
 import '../widgets/ui/input.dart' as ui;
@@ -11,6 +13,7 @@ import '../widgets/ui/table.dart' as ui;
 import '../widgets/export_button.dart';
 import '../widgets/clickable_contact_info.dart';
 import '../theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class TestsPage extends StatefulWidget {
   const TestsPage({super.key});
@@ -23,6 +26,8 @@ class _TestsPageState extends State<TestsPage> {
   String _viewMode = 'grid';
   String _selectedStatus = 'all';
   final _searchController = TextEditingController();
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
   final Map<String, bool> _columnVisibility = {
     'date': true,
     'title': true,
@@ -36,9 +41,25 @@ class _TestsPageState extends State<TestsPage> {
   @override
   void initState() {
     super.initState();
+    _loadAgents();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<TestsProvider>().loadTests();
     });
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -186,7 +207,9 @@ class _TestsPageState extends State<TestsPage> {
   Widget _buildTestCard(Test test) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
+      child: InkWell(
+        onTap: () => _showTestPreview(test),
+        child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,8 +222,8 @@ class _TestsPageState extends State<TestsPage> {
                     child: Text(
                       test.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                            fontWeight: FontWeight.bold,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -290,7 +313,8 @@ class _TestsPageState extends State<TestsPage> {
               // Date and Rate in compact row
               Row(
                 children: [
-                  const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
+                  const Icon(Icons.calendar_today,
+                      size: 14, color: Colors.grey),
                   const SizedBox(width: 4),
                   Text(
                     DateFormat('MMM d').format(test.date),
@@ -298,13 +322,14 @@ class _TestsPageState extends State<TestsPage> {
                   ),
                   if (test.rate != null) ...[
                     const SizedBox(width: 16),
-                    const Icon(Icons.attach_money, size: 14, color: Colors.grey),
+                    const Icon(Icons.attach_money,
+                        size: 14, color: Colors.grey),
                     const SizedBox(width: 4),
                     Text(
                       '${test.currency ?? 'USD'} ${test.rate!.toStringAsFixed(0)}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
+                            fontWeight: FontWeight.w500,
+                          ),
                     ),
                   ],
                 ],
@@ -323,7 +348,322 @@ class _TestsPageState extends State<TestsPage> {
             ],
           ),
         ),
+      ),
     );
+  }
+
+  void _showTestPreview(Test test) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          test.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildTestDetails(test),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.goldColor,
+            ),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              final navigator = Navigator.of(context);
+              final testsProvider = context.read<TestsProvider>();
+              navigator.pushNamed(
+                '/new-test',
+                arguments: test,
+              ).then((_) {
+                if (mounted) {
+                  testsProvider.loadTests();
+                }
+              });
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildTestDetails(Test test) {
+    List<Widget> details = [];
+
+    // Parse description to extract individual fields
+    Map<String, String> parsedData = _parseDescriptionData(test.description);
+
+    // Test Type (from description)
+    if (parsedData['testType'] != null) {
+      details.addAll([
+        _buildDetailRow('Test Type', parsedData['testType']!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate (from description or model field)
+    if (parsedData['rate'] != null) {
+      details.addAll([
+        _buildDetailRow('Rate', parsedData['rate']!),
+        const SizedBox(height: 8),
+      ]);
+    } else if (test.rate != null && test.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Rate',
+            '${test.currency ?? 'USD'} ${test.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Call Time (from description)
+    if (parsedData['callTime'] != null) {
+      details.addAll([
+        _buildDetailRow('Call Time', parsedData['callTime']!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information (from description)
+    String? agentId = parsedData['agentId'];
+    if (agentId != null) {
+      details.addAll([
+        _buildAgentRow('Agent', agentId),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Notes (from description)
+    if (parsedData['notes'] != null) {
+      details.addAll([
+        _buildDetailRow('Notes', parsedData['notes']!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date
+    details.addAll([
+      _buildDetailRow(
+          'Date', DateFormat('EEEE, MMMM d, yyyy').format(test.date)),
+      const SizedBox(height: 8),
+    ]);
+
+    // Location - Use consistent alignment
+    if (test.location != null && test.location!.isNotEmpty) {
+      details.addAll([
+        _buildLocationRow('Location', test.location!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', test.status.toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    return details;
+  }
+
+  Map<String, String> _parseDescriptionData(String? description) {
+    Map<String, String> data = {};
+
+    if (description == null || description.isEmpty) {
+      return data;
+    }
+
+    final lines = description.split('\n\n');
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Test Type: ')) {
+        data['testType'] = line.substring('Test Type: '.length);
+      } else if (line.startsWith('Rate: ')) {
+        data['rate'] = line.substring('Rate: '.length);
+      } else if (line.startsWith('Call Time: ')) {
+        data['callTime'] = line.substring('Call Time: '.length);
+      } else if (line.startsWith('Agent ID: ')) {
+        data['agentId'] = line.substring('Agent ID: '.length);
+      } else if (line.startsWith('Notes: ')) {
+        data['notes'] = line.substring('Notes: '.length);
+      }
+    }
+
+    return data;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationRow(String label, String location) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ClickableContactInfo(
+            text: location,
+            type: ContactType.location,
+            showIcon: false,
+            textColor: Colors.blue[400],
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentId) {
+    // Get agent from cache
+    final agent = _agentCache[agentId];
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent?.name ?? 'Unknown Agent',
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              if (agent != null)
+                InkWell(
+                  onTap: () => _sendWhatsAppToAgent(agent),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.chat,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+
+    // Store context before async gap
+    final currentContext = context;
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
   }
 
   Widget _buildTestsTable(TestsProvider provider) {
@@ -487,7 +827,8 @@ class _TestsPageState extends State<TestsPage> {
             ExportButton(
               type: ExportType.tests,
               data: provider.filteredTests,
-              customFilename: 'tests_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+              customFilename:
+                  'tests_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
             ),
             const SizedBox(width: 8),
             IconButton(

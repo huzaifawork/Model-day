@@ -4,11 +4,13 @@ class Contact {
   final String name;
   final String email;
   final String phone;
+  final String? instagram;
 
   Contact({
     required this.name,
     required this.email,
     required this.phone,
+    this.instagram,
   });
 
   factory Contact.fromJson(Map<String, dynamic> json) {
@@ -16,6 +18,7 @@ class Contact {
       name: json['name'] ?? '',
       email: json['email'] ?? '',
       phone: json['phone'] ?? '',
+      instagram: json['instagram'],
     );
   }
 
@@ -24,6 +27,7 @@ class Contact {
       'name': name,
       'email': email,
       'phone': phone,
+      'instagram': instagram,
     };
   }
 }

@@ -6,6 +6,7 @@ import '../pages/landing_page.dart';
 import '../pages/sign_in_page.dart';
 import '../pages/sign_up_page.dart';
 import '../pages/welcome_page.dart';
+import '../pages/approvals_page.dart';
 
 /// Custom route information parser to handle browser refresh properly
 class AppRouteInformationParser extends RouteInformationParser<String> {
@@ -145,9 +146,15 @@ class AppRouterDelegate extends RouterDelegate<String>
   
   Widget _getPageForRoute(String route) {
     // Return the appropriate page for the route
-    // For now, return welcome page as fallback
     debugPrint('🔍 AppRouterDelegate - Getting page for route: $route');
-    return const WelcomePage();
+    
+    switch (route) {
+      case '/approvals':
+        return const ApprovalsPage();
+      default:
+        // For now, return welcome page as fallback
+        return const WelcomePage();
+    }
   }
   
   @override

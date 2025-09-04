@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/models/community_post.dart';
 import 'package:new_flutter/services/community_service.dart';
 import 'package:new_flutter/pages/community_post_detail_page.dart';
+import 'package:new_flutter/providers/notification_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class CommunityBoardPage extends StatefulWidget {
   const CommunityBoardPage({super.key});
@@ -14,6 +17,12 @@ class CommunityBoardPage extends StatefulWidget {
 }
 
 class _CommunityBoardPageState extends State<CommunityBoardPage> {
+  String _extractLocation(String content) {
+    final locationRegex = RegExp(r'Location: ([^\n]+)');
+    final match = locationRegex.firstMatch(content);
+    return match?.group(1)?.trim() ?? 'Unknown';
+  }
+
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
@@ -22,6 +31,15 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
   final TextEditingController _timeController = TextEditingController();
 
   List<CommunityPost> _posts = [];
+
+  Future<void> _launchMap(String location) async {
+    final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$location');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else {
+      debugPrint('Could not launch $uri');
+    }
+  }
   List<CommunityPost> _filteredPosts = [];
   bool _isLoading = true;
   bool _isPosting = false;
@@ -50,6 +68,12 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
   void initState() {
     super.initState();
     _loadPosts();
+    // Initialize notifications for the current user
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final notificationProvider =
+          Provider.of<NotificationProvider>(context, listen: false);
+      notificationProvider.initialize();
+    });
   }
 
   @override
@@ -281,7 +305,7 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _categories.skip(1).contains(
+                    initialValue: _categories.skip(1).contains(
                             _selectedCategory == 'All Categories'
                                 ? _categories[1]
                                 : _selectedCategory)
@@ -619,7 +643,7 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
                                 ),
                                 const SizedBox(height: 8),
                                 DropdownButtonFormField<String>(
-                                  value: _selectedContactMethod,
+                                  initialValue: _selectedContactMethod,
                                   onChanged: (value) {
                                     setState(() {
                                       _selectedContactMethod = value!;
@@ -738,7 +762,7 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
                                   ),
                                   const SizedBox(height: 8),
                                   DropdownButtonFormField<String>(
-                                    value: _selectedContactMethod,
+                                    initialValue: _selectedContactMethod,
                                     onChanged: (value) {
                                       setState(() {
                                         _selectedContactMethod = value!;
@@ -835,6 +859,47 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
     return AppLayout(
       currentPage: '/community-board',
       title: 'Community Board',
+      actions: [
+        Consumer<NotificationProvider>(
+          builder: (context, notificationProvider, child) {
+            final unreadCount = notificationProvider.unreadCount;
+            return Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.mail_outline, color: Colors.white),
+                  tooltip: 'Notifications',
+                  onPressed: () => _showNotificationPanel(context),
+                ),
+                if (unreadCount > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        unreadCount > 99 ? '99+' : unreadCount.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
       child: isMobile
           ? _buildMobileLayout()
           : LayoutBuilder(
@@ -983,7 +1048,7 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
                                   ),
                                   const SizedBox(height: 8),
                                   DropdownButtonFormField<String>(
-                                    value:
+                                    initialValue:
                                         _categories.contains(_selectedCategory)
                                             ? _selectedCategory
                                             : null,
@@ -1283,11 +1348,17 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
                   color: Colors.white.withValues(alpha: 0.6),
                 ),
                 const SizedBox(width: 4),
-                Text(
-                  'NYC',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.6),
-                    fontSize: 12,
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: () => _launchMap(_extractLocation(post.content)),
+                    child: Text(
+                    _extractLocation(post.content),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 12,
+                    ),
+                  ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1555,7 +1626,7 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _categories.contains(_selectedCategory)
+              initialValue: _categories.contains(_selectedCategory)
                   ? _selectedCategory
                   : null,
               onChanged: (value) {
@@ -1771,5 +1842,492 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
     } else {
       return 'Just now';
     }
+  }
+
+  void _showNotificationPanel(BuildContext context) async {
+    final screenSize = MediaQuery.of(context).size;
+    final isMobile = screenSize.width <= 768;
+    final isTablet = screenSize.width > 768 && screenSize.width <= 1200;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.5),
+      builder: (BuildContext context) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 16 : 32,
+              vertical: isMobile ? 40 : 60,
+            ),
+            child: Container(
+              width: isMobile ? double.infinity : (isTablet ? 450 : 500),
+              height:
+                  isMobile ? screenSize.height * 0.7 : (isTablet ? 550 : 600),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppTheme.surfaceColor,
+                    AppTheme.surfaceColorLight,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppTheme.goldColor.withValues(alpha: 0.4),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  // Enhanced Header
+                  Container(
+                    padding: EdgeInsets.all(isMobile ? 16 : 20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppTheme.goldColor.withValues(alpha: 0.15),
+                          AppTheme.goldColor.withValues(alpha: 0.08),
+                        ],
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        topRight: Radius.circular(16),
+                      ),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: AppTheme.goldColor.withValues(alpha: 0.2),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.goldColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.message,
+                            color: AppTheme.goldColor,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Notifications',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: isMobile ? 18 : 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Consumer<NotificationProvider>(
+                                builder:
+                                    (context, notificationProvider, child) {
+                                  final unreadCount =
+                                      notificationProvider.unreadCount;
+                                  return Text(
+                                    unreadCount > 0
+                                        ? '$unreadCount unread notification${unreadCount > 1 ? 's' : ''}'
+                                        : 'All caught up!',
+                                    style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.7),
+                                      fontSize: 12,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        Consumer<NotificationProvider>(
+                          builder: (context, notificationProvider, child) {
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedOpacity(
+                                  opacity:
+                                      notificationProvider.notifications.any((n) => !n.isRead)
+                                          ? 1.0
+                                          : 0.5,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: TextButton.icon(
+                                    onPressed: notificationProvider.notifications.any((n) => !n.isRead)
+                                        ? () => notificationProvider.markAllAsRead()
+                                        : null,
+                                    icon: const Icon(
+                                      Icons.done_all,
+                                      size: 16,
+                                    ),
+                                    label: Text(
+                                      isMobile ? 'Read all' : 'Mark all read',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: notificationProvider.notifications.any((n) => !n.isRead)
+                                          ? AppTheme.goldColor
+                                          : Colors.grey,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                AnimatedOpacity(
+                                  opacity:
+                                      notificationProvider.notifications.isNotEmpty
+                                          ? 1.0
+                                          : 0.5,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: TextButton.icon(
+                                    onPressed: notificationProvider.notifications.isNotEmpty
+                                        ? () => notificationProvider.clearAllNotifications()
+                                        : null,
+                                    icon: const Icon(
+                                      Icons.clear_all,
+                                      size: 16,
+                                    ),
+                                    label: Text(
+                                      'Clear',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: notificationProvider.notifications.isNotEmpty
+                                          ? Colors.red.shade400
+                                          : Colors.grey,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: IconButton.styleFrom(
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.1),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Enhanced Notifications List
+                  Expanded(
+                    child: Consumer<NotificationProvider>(
+                      builder: (context, notificationProvider, child) {
+                        if (notificationProvider.isLoading) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const CircularProgressIndicator(
+                                  color: AppTheme.goldColor,
+                                  strokeWidth: 3,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Loading notifications...',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.7),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        if (notificationProvider.notifications.isEmpty) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.cardColor,
+                                    borderRadius: BorderRadius.circular(50),
+                                    border: Border.all(
+                                        color: AppTheme.borderColor, width: 1),
+                                  ),
+                                  child: const Icon(
+                                    Icons.notifications_outlined,
+                                    size: 48,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                const Text(
+                                  'No notifications yet',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'You\'ll see notifications here when someone\ninteracts with your posts',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        return ListView.separated(
+                          padding: EdgeInsets.all(isMobile ? 12 : 16),
+                          itemCount: notificationProvider.notifications.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final notification =
+                                notificationProvider.notifications[index];
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              decoration: BoxDecoration(
+                                color: AppTheme.cardColor,
+                                gradient: notification.isRead
+                                    ? null
+                                    : LinearGradient(
+                                        begin: Alignment.centerLeft,
+                                        end: Alignment.centerRight,
+                                        colors: [
+                                          AppTheme.goldColor
+                                              .withValues(alpha: 0.08),
+                                          AppTheme.goldColor
+                                              .withValues(alpha: 0.03),
+                                        ],
+                                      ),
+                                borderRadius: BorderRadius.circular(12),
+                                border: notification.isRead
+                                    ? Border.all(
+                                        color: AppTheme.borderColor,
+                                        width: 1,
+                                      )
+                                    : Border.all(
+                                        color: AppTheme.goldColor
+                                            .withValues(alpha: 0.4),
+                                        width: 1.5,
+                                      ),
+                                boxShadow: notification.isRead
+                                    ? AppTheme.shadowSm
+                                    : [
+                                        BoxShadow(
+                                          color: AppTheme.goldColor
+                                              .withValues(alpha: 0.12),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () async {
+                                    if (!notification.isRead) {
+                                      notificationProvider
+                                          .markAsRead(notification.id);
+                                    }
+                                    // Navigate to post if postId is available
+                                    if (notification.postId != null) {
+                                      debugPrint('Attempting to navigate to post with ID: ${notification.postId}');
+                                      final navigator = Navigator.of(context);
+                                      final scaffoldMessenger = ScaffoldMessenger.of(context);
+                                      try {
+                                        final post = await CommunityService.getPostById(notification.postId!);
+                                        debugPrint('Successfully fetched post: ${post.id}');
+                                        // Pop the dialog first
+                                        navigator.pop();
+                                        // Then navigate to the post detail page
+                                        if (mounted) {
+                                          await navigator.push(
+                                            MaterialPageRoute(
+                                              builder: (context) => CommunityPostDetailPage(post: post),
+                                            ),
+                                          );
+                                          debugPrint('Navigation completed successfully');
+                                        }
+                                      } catch (e) {
+                                        debugPrint('Error fetching post with ID ${notification.postId}: $e');
+                                        // Pop the dialog first
+                                        navigator.pop();
+                                        if (mounted) {
+                                          scaffoldMessenger.showSnackBar(
+                                            SnackBar(
+                                              content: Text('Error loading post: ${e.toString()}'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    } else {
+                                      // If postId is null, just pop the dialog
+                                      Navigator.of(context).pop();
+                                    }
+                                  },
+                                  child: Padding(
+                                    padding: EdgeInsets.all(isMobile ? 12 : 16),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 44,
+                                          height: 44,
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                AppTheme.goldColor
+                                                    .withValues(alpha: 0.2),
+                                                AppTheme.goldColor
+                                                    .withValues(alpha: 0.1),
+                                              ],
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: AppTheme.goldColor
+                                                  .withValues(alpha: 0.3),
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            notification.type == 'comment'
+                                                ? Icons.comment_outlined
+                                                : Icons.notifications_active,
+                                            color: AppTheme.goldColor,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                notification.message,
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: isMobile ? 14 : 15,
+                                                  fontWeight:
+                                                      notification.isRead
+                                                          ? FontWeight.normal
+                                                          : FontWeight.w500,
+                                                  height: 1.3,
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.access_time,
+                                                    size: 12,
+                                                    color: Colors.white
+                                                        .withValues(alpha: 0.5),
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    _formatTimestamp(
+                                                        notification.createdAt),
+                                                    style: TextStyle(
+                                                      color: Colors.white
+                                                          .withValues(
+                                                              alpha: 0.6),
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (!notification.isRead) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            width: 10,
+                                            height: 10,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                                colors: [
+                                                  AppTheme.goldColor,
+                                                  AppTheme.goldColor
+                                                      .withValues(alpha: 0.8),
+                                                ],
+                                              ),
+                                              shape: BoxShape.circle,
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: AppTheme.goldColor
+                                                      .withValues(alpha: 0.5),
+                                                  blurRadius: 4,
+                                                  offset: const Offset(0, 1),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }

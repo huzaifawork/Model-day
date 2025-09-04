@@ -23,6 +23,36 @@ class _SignUpPageState extends State<SignUpPage> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _agreeToTerms = false;
+  String _passwordStrength = '';
+
+  String _checkPasswordStrength(String password) {
+    if (password.isEmpty) return '';
+
+    int score = 0;
+    if (password.length >= 6) score++;
+    if (password.length >= 8) score++;
+    if (RegExp(r'[A-Z]').hasMatch(password)) score++;
+    if (RegExp(r'[a-z]').hasMatch(password)) score++;
+    if (RegExp(r'[0-9]').hasMatch(password)) score++;
+    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) score++;
+
+    if (score <= 2) return 'Weak';
+    if (score <= 4) return 'Medium';
+    return 'Strong';
+  }
+
+  Color _getPasswordStrengthColor(String strength) {
+    switch (strength) {
+      case 'Weak':
+        return Colors.red;
+      case 'Medium':
+        return Colors.orange;
+      case 'Strong':
+        return Colors.green;
+      default:
+        return Colors.transparent;
+    }
+  }
 
   @override
   void initState() {
@@ -38,6 +68,26 @@ class _SignUpPageState extends State<SignUpPage> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  String _getFirebaseErrorMessage(dynamic error) {
+    String errorMessage = error.toString();
+
+    if (errorMessage.contains('email-already-in-use')) {
+      return 'This email is already registered. Please use a different email or try signing in.';
+    } else if (errorMessage.contains('weak-password')) {
+      return 'Password is too weak. Please choose a stronger password.';
+    } else if (errorMessage.contains('invalid-email')) {
+      return 'Please enter a valid email address.';
+    } else if (errorMessage.contains('operation-not-allowed')) {
+      return 'Email/password accounts are not enabled. Please contact support.';
+    } else if (errorMessage.contains('network-request-failed')) {
+      return 'Network error. Please check your internet connection and try again.';
+    } else if (errorMessage.contains('too-many-requests')) {
+      return 'Too many failed attempts. Please try again later.';
+    } else {
+      return 'Failed to create account. Please try again.';
+    }
   }
 
   Future<void> _handleSignUp() async {
@@ -84,7 +134,7 @@ class _SignUpPageState extends State<SignUpPage> {
       debugPrint('❌ SignUpPage - Sign up failed: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to create account. Please try again.';
+          _error = _getFirebaseErrorMessage(e);
           _isLoading = false;
         });
       }
@@ -92,6 +142,24 @@ class _SignUpPageState extends State<SignUpPage> {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  String _getGoogleSignInErrorMessage(dynamic error) {
+    String errorMessage = error.toString();
+
+    if (errorMessage.contains('account-exists-with-different-credential')) {
+      return 'An account already exists with this email using a different sign-in method.';
+    } else if (errorMessage.contains('popup-closed-by-user')) {
+      return 'Sign-in was cancelled. Please try again.';
+    } else if (errorMessage.contains('popup-blocked')) {
+      return 'Pop-up was blocked. Please allow pop-ups and try again.';
+    } else if (errorMessage.contains('network-request-failed')) {
+      return 'Network error. Please check your internet connection and try again.';
+    } else if (errorMessage.contains('too-many-requests')) {
+      return 'Too many failed attempts. Please try again later.';
+    } else {
+      return 'Failed to sign up with Google. Please try again.';
     }
   }
 
@@ -119,7 +187,7 @@ class _SignUpPageState extends State<SignUpPage> {
       debugPrint('❌ SignUpPage - Google sign up failed: $e');
       if (mounted) {
         setState(() {
-          _error = 'Failed to sign up with Google. Please try again.';
+          _error = _getGoogleSignInErrorMessage(e);
           _isLoading = false;
         });
       }
@@ -158,12 +226,20 @@ class _SignUpPageState extends State<SignUpPage> {
                         EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   ),
                   obscureText: _obscurePassword,
+                  onChanged: (value) {
+                    setState(() {
+                      _passwordStrength = _checkPasswordStrength(value);
+                    });
+                  },
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please enter a password';
                     }
                     if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                      return 'Password must be at least 6 characters long';
+                    }
+                    if (!RegExp(r'^(?=.*[a-zA-Z])').hasMatch(value)) {
+                      return 'Password must contain at least one letter';
                     }
                     return null;
                   },
@@ -203,6 +279,28 @@ class _SignUpPageState extends State<SignUpPage> {
             ],
           ),
         ),
+        if (_passwordStrength.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                'Password strength: ',
+                style: const TextStyle(
+                  color: AppTheme.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                _passwordStrength,
+                style: TextStyle(
+                  color: _getPasswordStrengthColor(_passwordStrength),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -510,22 +608,27 @@ class _SignUpPageState extends State<SignUpPage> {
                                         },
                                         activeColor: AppTheme.goldColor,
                                       ),
-                                      const Expanded(
-                                        child: Text.rich(
-                                          TextSpan(
-                                            text: 'I agree to the ',
-                                            style:
-                                                TextStyle(color: Colors.grey),
-                                            children: [
-                                              TextSpan(
-                                                text: 'Terms and Conditions',
-                                                style: TextStyle(
-                                                  color: AppTheme.goldColor,
-                                                  decoration:
-                                                      TextDecoration.underline,
+                                      Expanded(
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            Navigator.pushNamed(context, '/terms-and-conditions');
+                                          },
+                                          child: const Text.rich(
+                                            TextSpan(
+                                              text: 'I agree to the ',
+                                              style:
+                                                  TextStyle(color: Colors.grey),
+                                              children: [
+                                                TextSpan(
+                                                  text: 'Terms and Conditions',
+                                                  style: TextStyle(
+                                                    color: AppTheme.goldColor,
+                                                    decoration:
+                                                        TextDecoration.underline,
+                                                  ),
                                                 ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
                                         ),
                                       ),

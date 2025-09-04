@@ -7,10 +7,34 @@ class UserService {
   static const String _collectionName = 'users';
   static final _firestore = FirebaseFirestore.instance;
 
-  /// Get all users (for admin use)
+  /// Get all admin emails to exclude from user list
+  static Future<Set<String>> _getAdminEmails() async {
+    try {
+      final adminSnapshot = await _firestore
+          .collection('admins')
+          .get();
+      
+      final adminEmails = adminSnapshot.docs
+          .map((doc) => doc.data()['email'] as String?)
+          .where((email) => email != null)
+          .cast<String>()
+          .toSet();
+      
+      debugPrint('🔍 UserService._getAdminEmails() - Found ${adminEmails.length} admin emails: $adminEmails');
+      return adminEmails;
+    } catch (e) {
+      debugPrint('❌ Error getting admin emails: $e');
+      return <String>{};
+    }
+  }
+
+  /// Get all users (for admin use) - excludes admin users
   static Future<List<User>> getAllUsers() async {
     try {
       debugPrint('🔍 UserService.getAllUsers() - Starting to fetch users...');
+
+      // Get admin emails to exclude
+      final adminEmails = await _getAdminEmails();
 
       // First try without ordering to see if there are any users at all
       final querySnapshot = await _firestore
@@ -37,7 +61,9 @@ class UserService {
         }
 
         return User.fromJson(data);
-      }).toList();
+      })
+      .where((user) => !adminEmails.contains(user.email)) // Exclude admin users
+      .toList();
 
       // Sort by created date in memory if available
       users.sort((a, b) {
@@ -47,7 +73,7 @@ class UserService {
         return b.createdDate!.compareTo(a.createdDate!);
       });
 
-      debugPrint('🔍 UserService.getAllUsers() - Returning ${users.length} users');
+      debugPrint('🔍 UserService.getAllUsers() - Returning ${users.length} users (excluded ${adminEmails.length} admin users)');
       return users;
     } catch (e) {
       debugPrint('❌ Error getting all users: $e');

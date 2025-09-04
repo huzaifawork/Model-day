@@ -2,18 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'clickable_contact_info.dart';
 import '../models/job.dart';
 import '../models/casting.dart';
 import '../models/test.dart';
 import '../models/event.dart';
+import '../models/ai_job.dart';
+import '../models/agent.dart';
 import '../services/jobs_service.dart';
 import '../services/events_service.dart';
+import '../services/auth_service.dart';
 import '../services/on_stay_service.dart';
 import '../services/meetings_service.dart';
 import '../services/options_service.dart';
 import '../services/direct_bookings_service.dart';
 import '../services/direct_options_service.dart';
 import '../services/polaroids_service.dart';
+import '../services/ai_jobs_service.dart';
+import '../services/agents_service.dart';
 import '../models/on_stay.dart';
 import '../models/meeting.dart';
 import '../models/option.dart';
@@ -39,13 +46,33 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
   bool _isLoading = true;
   String? _error;
   Map<DateTime, List<dynamic>> _events = {};
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+    _loadAgents();
     if (widget.isFullCalendar) {
       _loadEvents();
+    }
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      if (mounted) {
+        setState(() {
+          _agentCache = {
+            for (final agent in agents)
+              if (agent.id != null) agent.id!: agent
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
     }
   }
 
@@ -66,19 +93,45 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       final directBookings = await DirectBookingsService.list();
       final directOptions = await DirectOptionsService.list();
       final polaroids = await PolaroidsService.list();
+      final aiJobs = await AiJobsService.list();
 
       // Load general events from EventsService
-      final eventsService = EventsService();
-      final generalEvents = await eventsService.getEvents();
+      final generalEvents = await _getEventsForCalendarPreview();
 
       final events = <DateTime, List<dynamic>>{};
 
-      // Group jobs by date
+      // Group jobs by date (handle multi-day events)
       for (final job in jobs) {
         try {
-          final date = DateTime.parse(job.date);
-          final dateKey = DateTime(date.year, date.month, date.day);
-          events[dateKey] = [...(events[dateKey] ?? []), job];
+          final startDate = DateTime.parse(job.date);
+          final startDateKey =
+              DateTime(startDate.year, startDate.month, startDate.day);
+
+          // Check if it's a multi-day job
+          if (job.isMultiDay &&
+              job.endDate != null &&
+              job.endDate!.isNotEmpty) {
+            try {
+              final endDate = DateTime.parse(job.endDate!);
+              final endDateKey =
+                  DateTime(endDate.year, endDate.month, endDate.day);
+
+              // Add job to all dates in the range
+              DateTime currentDate = startDateKey;
+              while (currentDate.isBefore(endDateKey) ||
+                  currentDate.isAtSameMomentAs(endDateKey)) {
+                events[currentDate] = [...(events[currentDate] ?? []), job];
+                currentDate = currentDate.add(const Duration(days: 1));
+              }
+            } catch (e) {
+              debugPrint('Error parsing job end date: ${job.endDate} - $e');
+              // Fallback to single day
+              events[startDateKey] = [...(events[startDateKey] ?? []), job];
+            }
+          } else {
+            // Single day job
+            events[startDateKey] = [...(events[startDateKey] ?? []), job];
+          }
         } catch (e) {
           debugPrint('Error parsing job date: ${job.date} - $e');
           continue;
@@ -111,16 +164,41 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
         }
       }
 
-      // Group general events by date
+      // Group general events by date (handle multi-day events)
       for (final event in generalEvents) {
         try {
           if (event.date != null) {
-            final date = DateTime(
+            final startDate = DateTime(
               event.date!.year,
               event.date!.month,
               event.date!.day,
             );
-            events[date] = [...(events[date] ?? []), event];
+
+            // Check if it has an end date for multi-day event
+            if (event.endDate != null) {
+              final endDate = DateTime(
+                event.endDate!.year,
+                event.endDate!.month,
+                event.endDate!.day,
+              );
+
+              // Only treat as multi-day if end date is different from start date
+              if (!endDate.isAtSameMomentAs(startDate)) {
+                // Add event to all dates in the range
+                DateTime currentDate = startDate;
+                while (currentDate.isBefore(endDate) ||
+                    currentDate.isAtSameMomentAs(endDate)) {
+                  events[currentDate] = [...(events[currentDate] ?? []), event];
+                  currentDate = currentDate.add(const Duration(days: 1));
+                }
+              } else {
+                // Same day start and end
+                events[startDate] = [...(events[startDate] ?? []), event];
+              }
+            } else {
+              // Single day event
+              events[startDate] = [...(events[startDate] ?? []), event];
+            }
           }
         } catch (e) {
           debugPrint('Error processing general event date: $e');
@@ -128,16 +206,35 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
         }
       }
 
-      // Group OnStay events by date
+      // Group OnStay events by date (handle multi-day events)
       for (final onStay in onStays) {
         try {
           if (onStay.checkInDate != null) {
-            final date = DateTime(
+            final startDate = DateTime(
               onStay.checkInDate!.year,
               onStay.checkInDate!.month,
               onStay.checkInDate!.day,
             );
-            events[date] = [...(events[date] ?? []), onStay];
+
+            // Check if it has check-out date for multi-day stay
+            if (onStay.checkOutDate != null) {
+              final endDate = DateTime(
+                onStay.checkOutDate!.year,
+                onStay.checkOutDate!.month,
+                onStay.checkOutDate!.day,
+              );
+
+              // Add OnStay to all dates in the range
+              DateTime currentDate = startDate;
+              while (currentDate.isBefore(endDate) ||
+                  currentDate.isAtSameMomentAs(endDate)) {
+                events[currentDate] = [...(events[currentDate] ?? []), onStay];
+                currentDate = currentDate.add(const Duration(days: 1));
+              }
+            } else {
+              // Single day stay
+              events[startDate] = [...(events[startDate] ?? []), onStay];
+            }
           }
         } catch (e) {
           debugPrint('Error processing OnStay date: $e');
@@ -169,16 +266,38 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
         }
       }
 
-      // Group Direct Bookings by date
+      // Group Direct Bookings by date (handle multi-day events)
       for (final directBooking in directBookings) {
         try {
           if (directBooking.date != null) {
-            final date = DateTime(
+            final startDate = DateTime(
               directBooking.date!.year,
               directBooking.date!.month,
               directBooking.date!.day,
             );
-            events[date] = [...(events[date] ?? []), directBooking];
+
+            // Check if it's a multi-day booking
+            if (directBooking.isMultiDay && directBooking.endDate != null) {
+              final endDate = DateTime(
+                directBooking.endDate!.year,
+                directBooking.endDate!.month,
+                directBooking.endDate!.day,
+              );
+
+              // Add DirectBooking to all dates in the range
+              DateTime currentDate = startDate;
+              while (currentDate.isBefore(endDate) ||
+                  currentDate.isAtSameMomentAs(endDate)) {
+                events[currentDate] = [
+                  ...(events[currentDate] ?? []),
+                  directBooking
+                ];
+                currentDate = currentDate.add(const Duration(days: 1));
+              }
+            } else {
+              // Single day booking
+              events[startDate] = [...(events[startDate] ?? []), directBooking];
+            }
           }
         } catch (e) {
           debugPrint('Error processing DirectBooking date: $e');
@@ -215,6 +334,23 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
         }
       }
 
+      // Group AI Jobs by date
+      for (final aiJob in aiJobs) {
+        try {
+          if (aiJob.date != null) {
+            final date = DateTime(
+              aiJob.date!.year,
+              aiJob.date!.month,
+              aiJob.date!.day,
+            );
+            events[date] = [...(events[date] ?? []), aiJob];
+          }
+        } catch (e) {
+          debugPrint('Error processing AiJob date: $e');
+          continue;
+        }
+      }
+
       setState(() {
         _events = events;
         _isLoading = false;
@@ -228,6 +364,39 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
         _error = 'Failed to load events: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<List<Event>> _getEventsForCalendarPreview() async {
+    try {
+      final eventsService = EventsService();
+      final allEvents = await eventsService.getEventsWithRawData();
+      
+      // Get current user's email
+      final authService = AuthService();
+      final currentUser = authService.currentUser;
+      if (currentUser?.email == null) {
+        return [];
+      }
+      
+      final userEmail = currentUser!.email!;
+      
+      // Filter events where user is model, agent, or creator
+      final filteredEvents = allEvents.where((eventData) {
+        final modelEmail = eventData['model_email'] as String?;
+        final agentEmail = eventData['agent_email'] as String?;
+        final creatorEmail = eventData['creator_email'] as String?;
+        
+        return modelEmail == userEmail || 
+               agentEmail == userEmail || 
+               creatorEmail == userEmail;
+      }).toList();
+      
+      // Convert to Event objects
+      return filteredEvents.map((eventData) => Event.fromJson(eventData)).toList();
+    } catch (e) {
+      debugPrint('Error loading events for calendar preview: $e');
+      return [];
     }
   }
 
@@ -254,6 +423,8 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       return event.clientName;
     } else if (event is Option) {
       return event.clientName;
+    } else if (event is AiJob) {
+      return event.clientName;
     } else if (event is Event) {
       // Handle generic Event objects (like OTHER events)
       if (event.clientName != null && event.clientName!.isNotEmpty) {
@@ -270,9 +441,13 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
 
   String _getTruncatedEventTitle(dynamic event) {
     String title = _getEventTitle(event);
-    // Truncate long titles to fit in calendar cells - be very aggressive
-    if (title.length > 4) {
-      return title.substring(0, 4);
+    // Smart truncation for better readability - allow more characters
+    if (title.length > 8) {
+      // Try to truncate at word boundary or use ellipsis for better clarity
+      if (title.contains(' ') && title.indexOf(' ') <= 6) {
+        return title.substring(0, title.indexOf(' '));
+      }
+      return '${title.substring(0, 6)}..';
     }
     return title;
   }
@@ -281,6 +456,13 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (event is Job) return 'Job';
     if (event is Casting) return 'Casting';
     if (event is Test) return 'Test';
+    if (event is OnStay) return 'On Stay';
+    if (event is Polaroid) return 'Polaroids';
+    if (event is Meeting) return 'Meeting';
+    if (event is DirectBooking) return 'Direct Booking';
+    if (event is DirectOptions) return 'Direct Option';
+    if (event is Option) return 'Option';
+    if (event is AiJob) return 'AI Job';
     if (event is Event) {
       switch (event.type) {
         case EventType.job:
@@ -334,6 +516,13 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (event is Job) return Colors.blue;
     if (event is Casting) return Colors.purple;
     if (event is Test) return Colors.orange;
+    if (event is Polaroid) return Colors.pink;
+    if (event is Meeting) return Colors.amber;
+    if (event is OnStay) return Colors.indigo;
+    if (event is DirectBooking) return Colors.red;
+    if (event is DirectOptions) return Colors.teal;
+    if (event is Option) return Colors.green;
+    if (event is AiJob) return Colors.cyan;
     if (event is Event) {
       switch (event.type) {
         case EventType.job:
@@ -368,19 +557,30 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
 
     Color? backgroundColor;
     Color textColor = Colors.white;
-    Color eventTextColor = Colors.white;
+    Color? borderColor;
 
     if (isSelected) {
       backgroundColor = AppTheme.goldColor;
       textColor = Colors.black;
-      eventTextColor = Colors.black;
     } else if (isToday) {
       backgroundColor = AppTheme.goldColor.withValues(alpha: 0.7);
       textColor = Colors.black;
-      eventTextColor = Colors.black;
+    } else if (hasEvents) {
+      // Show event-based background color for days with events
+      final primaryEventColor = _getEventColor(events.first);
+      if (events.length == 1) {
+        // Single event - use event color with transparency
+        backgroundColor = primaryEventColor.withValues(alpha: 0.3);
+        borderColor = primaryEventColor.withValues(alpha: 0.8);
+        textColor = Colors.white;
+      } else {
+        // Multiple events - use a mixed color approach
+        backgroundColor = primaryEventColor.withValues(alpha: 0.2);
+        borderColor = primaryEventColor.withValues(alpha: 0.6);
+        textColor = Colors.white;
+      }
     } else if (isOutside) {
       textColor = Colors.white.withValues(alpha: 0.4);
-      eventTextColor = Colors.white.withValues(alpha: 0.4);
     }
 
     return LayoutBuilder(
@@ -428,6 +628,19 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(isVerySmall ? 4 : 6),
+            border: borderColor != null
+                ? Border.all(color: borderColor, width: 1.5)
+                : null,
+            // Add subtle shadow for days with events to make them stand out
+            boxShadow: hasEvents && !isSelected && !isToday
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 2,
+                      offset: const Offset(0, 1),
+                    ),
+                  ]
+                : null,
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.start,
@@ -438,9 +651,21 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
                 style: TextStyle(
                   color: textColor,
                   fontWeight: isToday || isSelected
-                      ? FontWeight.w600
-                      : FontWeight.normal,
+                      ? FontWeight.w700
+                      : hasEvents
+                          ? FontWeight.w600
+                          : FontWeight.normal,
                   fontSize: dayFontSize,
+                  // Add text shadow for better readability on colored backgrounds
+                  shadows: hasEvents && !isSelected && !isToday
+                      ? [
+                          Shadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            offset: const Offset(0.5, 0.5),
+                            blurRadius: 1,
+                          ),
+                        ]
+                      : null,
                 ),
               ),
 
@@ -457,33 +682,62 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           if (events.length == 1) ...[
-                            // Show single event name (truncated)
+                            // Show single event name with appealing styling
                             Flexible(
-                              child: Text(
-                                _getTruncatedEventTitle(events.first),
-                                style: TextStyle(
-                                  color: eventTextColor,
-                                  fontSize: eventFontSize,
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 2, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(3),
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.clip,
-                                textAlign: TextAlign.center,
+                                child: Text(
+                                  _getTruncatedEventTitle(events.first),
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: eventFontSize +
+                                        1, // Slightly larger for better readability
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.0,
+                                    letterSpacing:
+                                        0.3, // Better letter spacing for clarity
+                                    // Strong text shadow for maximum appeal and readability
+                                    shadows: [
+                                      Shadow(
+                                        color:
+                                            Colors.black.withValues(alpha: 0.8),
+                                        offset: const Offset(0.5, 0.5),
+                                        blurRadius: 1.5,
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.visible,
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
                             ),
                           ] else ...[
-                            // Show event count for multiple events
+                            // Show event count for multiple events with indicator
                             Flexible(
-                              child: Text(
-                                '${events.length}',
-                                style: TextStyle(
-                                  color: eventTextColor,
-                                  fontSize: eventFontSize,
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: _getEventColor(events.first)
+                                      .withValues(alpha: 0.8),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                textAlign: TextAlign.center,
+                                child: Text(
+                                  '${events.length}',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: eventFontSize,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.0,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
                             ),
                           ],
@@ -535,6 +789,8 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
                         title: Text(
                           _getEventTitle(event),
                           style: const TextStyle(color: Colors.white),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -686,9 +942,35 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
 
     // Location
     final location = _getEventLocation(event);
-    if (location.isNotEmpty && location != 'No location') {
+    if (location.isNotEmpty &&
+        location != 'No location' &&
+        location != 'No location specified') {
       details.addAll([
-        _buildDetailRow('Location', location),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: location,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
       ]);
     }
@@ -712,6 +994,8 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       details.addAll(_buildDirectOptionsDetails(event));
     } else if (event is Option) {
       details.addAll(_buildOptionDetails(event));
+    } else if (event is AiJob) {
+      details.addAll(_buildAiJobDetails(event));
     } else if (event is Event) {
       details.addAll(_buildGenericEventDetails(event));
     }
@@ -745,6 +1029,103 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
         ),
       ],
     );
+  }
+
+  Widget _buildAgentRow(String label, String agentId) {
+    // Get agent from cache
+    final agent = _agentCache[agentId];
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent?.name ?? 'Unknown Agent',
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              if (agent != null)
+                InkWell(
+                  onTap: () => _sendWhatsAppToAgent(agent),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.chat,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+
+    // Store context before async gap
+    final currentContext = context;
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _showAddEventDialog(DateTime selectedDate) {
@@ -1254,6 +1635,33 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Today button to jump to current date
+                    ElevatedButton(
+                      onPressed: () {
+                        final today = DateTime.now();
+                        setState(() {
+                          _focusedDay = today;
+                          _selectedDay = today;
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.goldColor,
+                        foregroundColor: Colors.black,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isVerySmall ? 8 : 12,
+                          vertical: isVerySmall ? 4 : 6,
+                        ),
+                        textStyle: TextStyle(
+                          fontSize: isVerySmall ? 10 : 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      child: const Text('Today'),
+                    ),
+                    const SizedBox(width: 8),
                     if (isVerySmall)
                       // Very small screens: Icon only button
                       ElevatedButton(
@@ -1514,7 +1922,7 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
 
     if (job.bookingAgent != null && job.bookingAgent!.isNotEmpty) {
       details.addAll([
-        _buildDetailRow('Booking Agent', job.bookingAgent!),
+        _buildAgentRow('Agent', job.bookingAgent!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1546,35 +1954,71 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
   List<Widget> _buildCastingDetails(Casting casting) {
     List<Widget> details = [];
 
-    if (casting.title.isNotEmpty) {
+    // Parse description to extract individual fields
+    Map<String, String> parsedData = _parseDescriptionData(casting.description);
+
+    // Job Type (from description)
+    if (parsedData['jobType'] != null) {
       details.addAll([
-        _buildDetailRow('Title', casting.title),
+        _buildDetailRow('Description', parsedData['jobType']!),
         const SizedBox(height: 8),
       ]);
     }
 
-    if (casting.description != null && casting.description!.isNotEmpty) {
+    // Time (combine start and end time from description)
+    String? startTime = parsedData['startTime'];
+    String? endTime = parsedData['endTime'];
+
+    if (startTime != null && endTime != null) {
       details.addAll([
-        _buildDetailRow('Description', casting.description!),
+        _buildDetailRow('Time', '$startTime - $endTime'),
+        const SizedBox(height: 8),
+      ]);
+    } else if (startTime != null) {
+      details.addAll([
+        _buildDetailRow('Start Time', startTime),
+        const SizedBox(height: 8),
+      ]);
+    } else if (endTime != null) {
+      details.addAll([
+        _buildDetailRow('End Time', endTime),
         const SizedBox(height: 8),
       ]);
     }
 
-    if (casting.requirements != null && casting.requirements!.isNotEmpty) {
+    // Agent Information (from description)
+    String? agentId = parsedData['agentId'];
+    if (agentId != null) {
       details.addAll([
-        _buildDetailRow('Requirements', casting.requirements!),
+        _buildAgentRow('Agent', agentId),
         const SizedBox(height: 8),
       ]);
     }
 
-    if (casting.rate != null && casting.rate! > 0) {
+    // Notes (from description)
+    if (parsedData['notes'] != null) {
       details.addAll([
-        _buildDetailRow('Rate',
-            '${casting.currency ?? 'USD'} ${casting.rate!.toStringAsFixed(2)}'),
+        _buildDetailRow('Notes', parsedData['notes']!),
         const SizedBox(height: 8),
       ]);
     }
 
+    // Date
+    details.addAll([
+      _buildDetailRow(
+          'Date', DateFormat('EEEE, MMMM d, yyyy').format(casting.date)),
+      const SizedBox(height: 8),
+    ]);
+
+    // Location
+    if (casting.location != null && casting.location!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Location', casting.location!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
     details.addAll([
       _buildDetailRow('Status', casting.status.toUpperCase()),
       const SizedBox(height: 8),
@@ -1583,34 +2027,153 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     return details;
   }
 
+  Map<String, String> _parseDescriptionData(String? description) {
+    Map<String, String> data = {};
+
+    if (description == null || description.isEmpty) {
+      return data;
+    }
+
+    final lines = description.split('\n');
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Job Type: ')) {
+        data['jobType'] = line.substring('Job Type: '.length);
+      } else if (line.startsWith('Start Time: ')) {
+        data['startTime'] = line.substring('Start Time: '.length);
+      } else if (line.startsWith('End Time: ')) {
+        data['endTime'] = line.substring('End Time: '.length);
+      } else if (line.startsWith('Agent ID: ')) {
+        data['agentId'] = line.substring('Agent ID: '.length);
+      } else if (line.startsWith('Notes: ')) {
+        data['notes'] = line.substring('Notes: '.length);
+      }
+    }
+
+    return data;
+  }
+
+  String? _getAgentIdFromNotes(String? notes) {
+    if (notes == null || notes.isEmpty) {
+      return null;
+    }
+
+    final lines = notes.split('\n');
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Agent ID: ')) {
+        return line.substring('Agent ID: '.length);
+      }
+    }
+
+    return null;
+  }
+
+  /// Extract only the "Additional Notes" part from structured OnStay notes
+  String? _getCleanNotesFromOnStay(String? notes) {
+    if (notes == null || notes.isEmpty) {
+      return null;
+    }
+
+    // Split notes by double newlines to get individual sections
+    final sections = notes.split('\n\n');
+
+    for (final section in sections) {
+      final trimmedSection = section.trim();
+      if (trimmedSection.startsWith('Additional Notes: ')) {
+        final cleanNotes = trimmedSection.substring(18).trim();
+        return cleanNotes.isNotEmpty ? cleanNotes : null;
+      }
+    }
+
+    // If no "Additional Notes" section found, check if the entire notes field
+    // contains only unstructured text (no "Field: Value" patterns)
+    final hasStructuredData =
+        notes.contains(RegExp(r'^[A-Za-z\s]+:\s', multiLine: true));
+    if (!hasStructuredData) {
+      // Return the entire notes if it doesn't contain structured data
+      return notes.trim().isNotEmpty ? notes.trim() : null;
+    }
+
+    return null;
+  }
+
+  Map<String, String> _parseTestDescriptionData(String? description) {
+    Map<String, String> data = {};
+
+    if (description == null || description.isEmpty) {
+      return data;
+    }
+
+    final lines = description.split('\n\n');
+    for (String line in lines) {
+      line = line.trim();
+      if (line.startsWith('Test Type: ')) {
+        data['testType'] = line.substring('Test Type: '.length);
+      } else if (line.startsWith('Rate: ')) {
+        data['rate'] = line.substring('Rate: '.length);
+      } else if (line.startsWith('Call Time: ')) {
+        data['callTime'] = line.substring('Call Time: '.length);
+      } else if (line.startsWith('Agent ID: ')) {
+        data['agentId'] = line.substring('Agent ID: '.length);
+      } else if (line.startsWith('Notes: ')) {
+        data['notes'] = line.substring('Notes: '.length);
+      }
+    }
+
+    return data;
+  }
+
   List<Widget> _buildTestDetails(Test test) {
     List<Widget> details = [];
 
-    if (test.title.isNotEmpty) {
+    // Parse description to extract individual fields
+    Map<String, String> parsedData =
+        _parseTestDescriptionData(test.description);
+
+    // Test Type (from description)
+    if (parsedData['testType'] != null) {
       details.addAll([
-        _buildDetailRow('Title', test.title),
+        _buildDetailRow('Test Type', parsedData['testType']!),
         const SizedBox(height: 8),
       ]);
     }
 
-    if (test.description != null && test.description!.isNotEmpty) {
+    // Rate (from description or model field)
+    if (parsedData['rate'] != null) {
       details.addAll([
-        _buildDetailRow('Description', test.description!),
+        _buildDetailRow('Rate', parsedData['rate']!),
         const SizedBox(height: 8),
       ]);
-    }
-
-    if (test.requirements != null && test.requirements!.isNotEmpty) {
-      details.addAll([
-        _buildDetailRow('Requirements', test.requirements!),
-        const SizedBox(height: 8),
-      ]);
-    }
-
-    if (test.rate != null && test.rate! > 0) {
+    } else if (test.rate != null && test.rate! > 0) {
       details.addAll([
         _buildDetailRow('Rate',
             '${test.currency ?? 'USD'} ${test.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Call Time (from description)
+    if (parsedData['callTime'] != null) {
+      details.addAll([
+        _buildDetailRow('Call Time', parsedData['callTime']!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information (from description)
+    final agentId = parsedData['agentId'];
+    if (agentId != null) {
+      details.addAll([
+        _buildAgentRow('Agent', agentId),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Notes (from description)
+    if (parsedData['notes'] != null) {
+      details.addAll([
+        _buildDetailRow('Notes', parsedData['notes']!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1651,7 +2214,7 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
 
     if (polaroid.bookingAgent != null && polaroid.bookingAgent!.isNotEmpty) {
       details.addAll([
-        _buildDetailRow('Booking Agent', polaroid.bookingAgent!),
+        _buildAgentRow('Agent', polaroid.bookingAgent!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1687,6 +2250,14 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       details.addAll([
         _buildDetailRow('Time',
             '${meeting.time}${meeting.endTime != null ? ' - ${meeting.endTime}' : ''}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Add agent information for meetings
+    if (meeting.bookingAgent != null && meeting.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', meeting.bookingAgent!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1768,10 +2339,31 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       ]);
     }
 
+    // Add agent information for on stays - check direct agentId field first, then fall back to notes
+    String? agentId = onStay.agentId;
+    if (agentId == null || agentId.isEmpty) {
+      agentId = _getAgentIdFromNotes(onStay.notes);
+    }
+    if (agentId != null && agentId.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', agentId),
+        const SizedBox(height: 8),
+      ]);
+    }
+
     details.addAll([
       _buildDetailRow('Status', onStay.status.toUpperCase()),
       const SizedBox(height: 8),
     ]);
+
+    // Add notes if they exist (extract clean notes only)
+    final cleanNotes = _getCleanNotesFromOnStay(onStay.notes);
+    if (cleanNotes != null) {
+      details.addAll([
+        _buildDetailRow('Notes', cleanNotes),
+        const SizedBox(height: 8),
+      ]);
+    }
 
     return details;
   }
@@ -1806,7 +2398,7 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (directBooking.bookingAgent != null &&
         directBooking.bookingAgent!.isNotEmpty) {
       details.addAll([
-        _buildDetailRow('Booking Agent', directBooking.bookingAgent!),
+        _buildAgentRow('Agent', directBooking.bookingAgent!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1814,6 +2406,14 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (directBooking.status != null && directBooking.status!.isNotEmpty) {
       details.addAll([
         _buildDetailRow('Status', directBooking.status!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Add notes if they exist
+    if (directBooking.notes != null && directBooking.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', directBooking.notes!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1832,9 +2432,16 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       ]);
     }
 
+    // Show Day Rate and Usage Rate separately (like in the screenshot)
     if (directOptions.rate != null && directOptions.rate! > 0) {
       details.addAll([
-        _buildDetailRow('Rate',
+        _buildDetailRow('Day Rate',
+            '${directOptions.currency ?? 'USD'} ${directOptions.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+      // For DirectOptions, usage rate is typically the same as day rate
+      details.addAll([
+        _buildDetailRow('Usage Rate',
             '${directOptions.currency ?? 'USD'} ${directOptions.rate!.toStringAsFixed(2)}'),
         const SizedBox(height: 8),
       ]);
@@ -1848,10 +2455,11 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       ]);
     }
 
+    // Use the new agent row with WhatsApp functionality
     if (directOptions.bookingAgent != null &&
         directOptions.bookingAgent!.isNotEmpty) {
       details.addAll([
-        _buildDetailRow('Booking Agent', directOptions.bookingAgent!),
+        _buildAgentRow('Agent', directOptions.bookingAgent!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1859,6 +2467,23 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (directOptions.status != null && directOptions.status!.isNotEmpty) {
       details.addAll([
         _buildDetailRow('Status', directOptions.status!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Add Payment Status
+    if (directOptions.paymentStatus != null &&
+        directOptions.paymentStatus!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Payment', directOptions.paymentStatus!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Add Notes
+    if (directOptions.notes != null && directOptions.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', directOptions.notes!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1896,6 +2521,14 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       details.addAll([
         _buildDetailRow(
             'Extra Hours', '${option.extraHours!.toStringAsFixed(1)} hours'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Add agent information for options
+    if (option.agentId != null && option.agentId!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', option.agentId!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1939,6 +2572,14 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       ]);
     }
 
+    // Add agent information for generic events
+    if (event.agentId != null && event.agentId!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', event.agentId!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
     if (event.status != null) {
       details.addAll([
         _buildDetailRow(
@@ -1958,6 +2599,70 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (event.notes != null && event.notes!.isNotEmpty) {
       details.addAll([
         _buildDetailRow('Notes', event.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  List<Widget> _buildAiJobDetails(AiJob aiJob) {
+    List<Widget> details = [];
+
+    if (aiJob.type != null && aiJob.type!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Type', aiJob.type!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (aiJob.description != null && aiJob.description!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Description', aiJob.description!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (aiJob.rate != null && aiJob.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Rate',
+            '${aiJob.currency ?? 'USD'} ${aiJob.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (aiJob.time != null && aiJob.time!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Time', aiJob.time!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Add agent information for AI jobs
+    if (aiJob.bookingAgent != null && aiJob.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', aiJob.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (aiJob.status != null && aiJob.status!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Status', aiJob.status!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (aiJob.paymentStatus != null && aiJob.paymentStatus!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Payment', aiJob.paymentStatus!.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    if (aiJob.notes != null && aiJob.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', aiJob.notes!),
         const SizedBox(height: 8),
       ]);
     }
@@ -1996,6 +2701,9 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     } else if (event is Option) {
       route = '/new-option';
       arguments = {'existingOption': event};
+    } else if (event is AiJob) {
+      route = '/new-ai-job';
+      arguments = {'existingAiJob': event};
     } else if (event is Event) {
       route = '/new-event';
       arguments = {'existingEvent': event, 'eventType': event.type};

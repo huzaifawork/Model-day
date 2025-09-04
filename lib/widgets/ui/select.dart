@@ -39,7 +39,7 @@ class Select extends StatelessWidget {
             ),
           ),
         DropdownButtonFormField<String>(
-          value: value != null && items.contains(value!) ? value : null,
+          initialValue: value != null && items.contains(value!) ? value : null,
           items: items.map((item) {
             return DropdownMenuItem(value: item, child: Text(item));
           }).toList(),

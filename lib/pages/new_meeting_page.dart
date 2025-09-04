@@ -8,6 +8,7 @@ import 'package:new_flutter/widgets/ocr_upload_widget.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/models/meeting.dart';
 import 'package:new_flutter/services/meetings_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:intl/intl.dart';
 
 class NewMeetingPage extends StatefulWidget {
@@ -25,6 +26,12 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
 
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
+
+  // Field navigation
+ 
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
 
   String _selectedStatus = 'scheduled';
   DateTime _selectedDate = DateTime.now();
@@ -46,6 +53,9 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (3 text fields: Subject, Location, Notes)
+    _manualFocusNodes = List.generate(3, (index) => FocusNode());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args != null) {
@@ -147,10 +157,17 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
     _subjectController.dispose();
     _locationController.dispose();
     _notesController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> data) {
+  Future<void> _handleOcrDataExtracted(Map<String, dynamic> data) async {
     debugPrint('🏢 OCR data extracted for meeting: $data');
     debugPrint('🏢 Start time in data: ${data['startTime']}');
     debugPrint('🏢 End time in data: ${data['endTime']}');
@@ -277,28 +294,11 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
         }
       }
 
-      // Map agent - try to find matching agent ID
+      // Agent matching moved outside setState - see below
       if (data['bookingAgent'] != null) {
-        final agentName = data['bookingAgent'].toString().toLowerCase();
-        // Check if the agent name contains "ogbhai" - map to the known agent ID
-        if (agentName.contains('ogbhai')) {
-          _selectedAgentId =
-              'sUAOiTx4b9dzTlSkIIOj'; // Known agent ID for ogbhai
-        }
-
-        // Also add to notes for reference
-        final currentNotes = _notesController.text;
-        final agentInfo = 'Industry Contact: ${data['bookingAgent']}';
-        _notesController.text =
-            currentNotes.isEmpty ? agentInfo : '$currentNotes\n$agentInfo';
+        debugPrint('✅ Agent will be set after setState');
       } else {
-        // Set default agent ID for ogbhai
-        _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj';
-
-        final currentNotes = _notesController.text;
-        final agentInfo = 'Industry Contact: ogbhai(uzibhaikiagencykoishak)';
-        _notesController.text =
-            currentNotes.isEmpty ? agentInfo : '$currentNotes\n$agentInfo';
+        debugPrint('❌ No agent found in OCR data');
       }
 
       // Map agenda/requirements to notes
@@ -338,7 +338,145 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
     });
 
     debugPrint('🏢 Meeting form populated with OCR data');
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(data);
+
+    // Handle agent matching after setState (async operation)
+    if (data['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${data['bookingAgent']}');
+      await _matchAgentIntelligently(data['bookingAgent'].toString());
+    }
   }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+    
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
+
 
   String _formatTime(TimeOfDay? time) {
     if (time == null) return '';
@@ -485,10 +623,11 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting meeting form after OCR...');
-                    _handleSubmit();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting meeting form after OCR...');
+                  //   _handleSubmit();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -497,9 +636,13 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
               _buildSectionCard(
                 'Basic Information',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Subject',
+                  TextFormField(
                     controller: _subjectController,
+                    focusNode: _manualFocusNodes[0], // Subject
+                    decoration: const InputDecoration(
+                      labelText: 'Subject',
+                      border: OutlineInputBorder(),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter subject';
@@ -508,9 +651,13 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Location',
+                  TextFormField(
                     controller: _locationController,
+                    focusNode: _manualFocusNodes[1], // Location
+                    decoration: const InputDecoration(
+                      labelText: 'Location',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   AgentDropdown(
@@ -544,10 +691,14 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
               _buildSectionCard(
                 'Notes',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Notes',
+                  TextFormField(
                     controller: _notesController,
+                    focusNode: _manualFocusNodes[2], // Notes
                     maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -761,7 +912,7 @@ class _NewMeetingPageState extends State<NewMeetingPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _statusOptions.contains(_selectedStatus)
+            initialValue: _statusOptions.contains(_selectedStatus)
                 ? _selectedStatus
                 : _statusOptions.first,
             decoration: const InputDecoration(

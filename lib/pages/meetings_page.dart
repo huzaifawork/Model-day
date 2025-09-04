@@ -4,7 +4,11 @@ import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/models/meeting.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/meetings_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
+import 'package:new_flutter/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MeetingsPage extends StatefulWidget {
   const MeetingsPage({super.key});
@@ -17,6 +21,8 @@ class _MeetingsPageState extends State<MeetingsPage> {
   List<Meeting> _meetings = [];
   List<Meeting> _filteredMeetings = [];
   bool _isLoading = true;
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
   bool _isGridView = true;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
@@ -24,7 +30,25 @@ class _MeetingsPageState extends State<MeetingsPage> {
   @override
   void initState() {
     super.initState();
+    _loadAgents();
     _loadMeetings();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      if (mounted) {
+        setState(() {
+          _agentCache = {
+            for (final agent in agents)
+              if (agent.id != null) agent.id!: agent
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -38,6 +62,7 @@ class _MeetingsPageState extends State<MeetingsPage> {
     debugPrint(
         '🏢 MeetingsPage._loadMeetings() - Starting to load meetings...');
     setState(() => _isLoading = true);
+    final currentContext = context;
     try {
       final meetings = await MeetingsService.list();
       debugPrint(
@@ -55,8 +80,8 @@ class _MeetingsPageState extends State<MeetingsPage> {
       debugPrint('❌ MeetingsPage._loadMeetings() - Error: $e');
       if (!mounted) return;
       setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
           SnackBar(content: Text('Error loading meetings: $e')),
         );
       }
@@ -188,7 +213,7 @@ class _MeetingsPageState extends State<MeetingsPage> {
     return Card(
       elevation: 2,
       child: InkWell(
-        onTap: () => _editMeeting(meeting),
+        onTap: () => _showMeetingPreview(meeting),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -319,8 +344,7 @@ class _MeetingsPageState extends State<MeetingsPage> {
             _buildStatusChip(meeting.status),
           ],
         ),
-        onTap: () =>
-            Navigator.pushNamed(context, '/new-meeting', arguments: meeting.id),
+        onTap: () => _showMeetingPreview(meeting),
       ),
     );
   }
@@ -350,6 +374,260 @@ class _MeetingsPageState extends State<MeetingsPage> {
       backgroundColor: color,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
+  }
+
+  void _showMeetingPreview(Meeting meeting) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          meeting.clientName,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildMeetingDetails(meeting),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.goldColor,
+            ),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _editMeeting(meeting);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildMeetingDetails(Meeting meeting) {
+    List<Widget> details = [];
+
+    // Type
+    if (meeting.type != null && meeting.type!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Type', meeting.type!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date
+    details.addAll([
+      _buildDetailRow('Date', _formatDate(meeting.date)),
+      const SizedBox(height: 8),
+    ]);
+
+    // Location
+    if (meeting.location != null && meeting.location!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: meeting.location!,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate
+    if (meeting.rate != null && meeting.rate!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Rate', '\$${meeting.rate}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information
+    if (meeting.bookingAgent != null && meeting.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', meeting.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', (meeting.status ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Notes
+    if (meeting.notes != null && meeting.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', meeting.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentIdOrName) {
+    // Get agent from cache, fallback to creating a dummy agent with the provided name
+    final agent = _agentCache[agentIdOrName] ?? Agent(name: agentIdOrName);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent.name,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _sendWhatsAppToAgent(agent),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.chat,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+
+    final currentContext = context;
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
   }
 
   void _editMeeting(Meeting meeting) async {

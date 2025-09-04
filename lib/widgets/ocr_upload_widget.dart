@@ -63,9 +63,12 @@ class _OcrUploadWidgetState extends State<OcrUploadWidget> {
       });
 
       // Extract text from image
+      debugPrint('🔍 OCR Widget: Starting text extraction from image...');
       final extractedText = await OcrService.extractTextFromImage(imageFile);
+      debugPrint('🔍 OCR Widget: Raw extracted text: "$extractedText"');
 
       if (extractedText == null || extractedText.trim().isEmpty) {
+        debugPrint('❌ OCR Widget: No text extracted from image');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -83,10 +86,39 @@ class _OcrUploadWidgetState extends State<OcrUploadWidget> {
         return;
       }
 
-      // Parse the extracted text
-      final extractedData = OcrService.parseTextForOptions(extractedText);
+      // Parse the extracted text using AI-powered backend
+      debugPrint('🔍 OCR Widget: Parsing extracted text with AI...');
+      Map<String, dynamic> extractedData;
+      try {
+        extractedData = await OcrService.parseTextWithAI(extractedText);
+        debugPrint('🔍 OCR Widget: AI-parsed data: $extractedData');
+      } catch (e) {
+        debugPrint('❌ OCR Widget: AI parsing failed: $e');
+        setState(() {
+          _isProcessing = false;
+        });
+        // Show error dialog
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('OCR Error'),
+              content: const Text(
+                  'AI OCR failed. Please check backend connection and API key.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
 
       // Call the callback with extracted data
+      debugPrint('🔍 OCR Widget: Calling onDataExtracted callback...');
       widget.onDataExtracted?.call(extractedData);
 
       if (mounted) {
@@ -189,20 +221,48 @@ class _OcrUploadWidgetState extends State<OcrUploadWidget> {
 
     try {
       // Parse the pasted text using OCR service
-      debugPrint('=== OCR WIDGET PROCESSING ===');
-      debugPrint('Input text: ${_textController.text}');
-      final extractedData =
-          OcrService.parseTextForOptions(_textController.text);
-      debugPrint('OCR Widget extracted data: $extractedData');
+      debugPrint('=== OCR WIDGET TEXT PROCESSING ===');
+      debugPrint('📝 Input text: ${_textController.text}');
+      debugPrint('📝 Text length: ${_textController.text.length}');
+
+      Map<String, dynamic> extractedData;
+      try {
+        extractedData = await OcrService.parseTextWithAI(_textController.text);
+        debugPrint('📝 OCR Widget AI-extracted data: $extractedData');
+      } catch (e) {
+        debugPrint('❌ OCR Widget: Manual text AI parsing failed: $e');
+        setState(() {
+          _isProcessing = false;
+        });
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('OCR Error'),
+              content: const Text(
+                  'AI OCR failed. Please check backend connection and API key.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+      debugPrint('📝 Extracted keys: ${extractedData.keys.toList()}');
 
       // Call the callback with extracted data
-      debugPrint('Calling onDataExtracted callback...');
-      debugPrint('Callback function exists: ${widget.onDataExtracted != null}');
+      debugPrint('📝 Calling onDataExtracted callback...');
+      debugPrint(
+          '📝 Callback function exists: ${widget.onDataExtracted != null}');
       if (widget.onDataExtracted != null) {
         widget.onDataExtracted!(extractedData);
-        debugPrint('Callback called successfully');
+        debugPrint('📝 Callback called successfully');
       } else {
-        debugPrint('ERROR: No callback function provided!');
+        debugPrint('❌ ERROR: No callback function provided!');
       }
 
       if (mounted) {

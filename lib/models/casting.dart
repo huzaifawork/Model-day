@@ -5,12 +5,15 @@ class Casting {
   final String title;
   final String? description;
   final DateTime date;
+  final String? startTime;
+  final String? endTime;
   final String? location;
   final String? requirements;
   final String status;
   final String? clientName;
   final double? rate;
   final String? currency;
+  final String? agentId;
   final List<String>? images;
 
   Casting({
@@ -18,12 +21,15 @@ class Casting {
     required this.title,
     this.description,
     required this.date,
+    this.startTime,
+    this.endTime,
     this.location,
     this.requirements,
     required this.status,
     this.clientName,
     this.rate,
     this.currency,
+    this.agentId,
     this.images,
   });
 
@@ -32,13 +38,17 @@ class Casting {
       id: json['id'] ?? '',
       title: json['title'] ?? '',
       description: json['description'],
-      date: json['date'] != null ? DateTime.parse(json['date']) : DateTime.now(),
+      date:
+          json['date'] != null ? DateTime.parse(json['date']) : DateTime.now(),
+      startTime: json['start_time'],
+      endTime: json['end_time'],
       location: json['location'],
       requirements: json['requirements'],
       status: json['status'] ?? 'pending',
       clientName: json['client_name'],
       rate: json['rate']?.toDouble(),
       currency: json['currency'] ?? 'USD',
+      agentId: json['agent_id'],
       images: json['images'] != null ? List<String>.from(json['images']) : null,
     );
   }
@@ -49,12 +59,15 @@ class Casting {
       'title': title,
       'description': description,
       'date': date.toIso8601String(),
+      'start_time': startTime,
+      'end_time': endTime,
       'location': location,
       'requirements': requirements,
       'status': status,
       'client_name': clientName,
       'rate': rate,
       'currency': currency,
+      'agent_id': agentId,
       'images': images,
     };
   }

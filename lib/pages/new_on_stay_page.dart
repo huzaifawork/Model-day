@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/models/on_stay.dart';
 import 'package:new_flutter/services/on_stay_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/widgets/ui/agent_dropdown.dart';
 
@@ -38,6 +39,11 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
 
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
+
   // Form state
   DateTime? _startDate;
   DateTime? _endDate;
@@ -54,6 +60,9 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (7 text fields: Agency Name, Agency Address, Location, Contract Details, Hotel Address, Hotel Cost, Pocket Money Cost, Notes)
+    _manualFocusNodes = List.generate(8, (index) => FocusNode());
 
     // Try to populate immediately if widget.stay is available
     if (widget.stay != null) {
@@ -120,6 +129,17 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
       } else {
         debugPrint('🏨 No contact name available');
       }
+
+      // Set agent ID if available
+      if (stay.agentId != null && stay.agentId!.isNotEmpty) {
+        _selectedAgentId = stay.agentId;
+        debugPrint('🏨 Set agent ID to: ${stay.agentId}');
+      } else {
+        debugPrint('🏨 No agent ID available');
+      }
+
+      // Parse structured notes back into individual fields
+      _parseNotesIntoFields(stay.notes ?? '');
     });
 
     debugPrint('🏨 Form populated successfully');
@@ -131,8 +151,61 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
     debugPrint('🏨 End Date: $_endDate');
   }
 
+  void _parseNotesIntoFields(String notes) {
+    if (notes.isEmpty) return;
+
+    debugPrint('🏨 Parsing notes into individual fields: $notes');
+
+    // Split notes by double newlines to get individual sections
+    final sections = notes.split('\n\n');
+
+    for (final section in sections) {
+      final trimmedSection = section.trim();
+
+      if (trimmedSection.startsWith('Agency: ')) {
+        final agencyName = trimmedSection.substring(8).trim();
+        if (agencyName.isNotEmpty && _agencyNameController.text.isEmpty) {
+          _agencyNameController.text = agencyName;
+          debugPrint('🏨 Parsed agency name: $agencyName');
+        }
+      } else if (trimmedSection.startsWith('Agency Address: ')) {
+        final agencyAddress = trimmedSection.substring(16).trim();
+        if (agencyAddress.isNotEmpty) {
+          _agencyAddressController.text = agencyAddress;
+          debugPrint('🏨 Parsed agency address: $agencyAddress');
+        }
+      } else if (trimmedSection.startsWith('Contract: ')) {
+        final contract = trimmedSection.substring(10).trim();
+        if (contract.isNotEmpty) {
+          _contractController.text = contract;
+          debugPrint('🏨 Parsed contract: $contract');
+        }
+      } else if (trimmedSection.startsWith('Flight Cost: ')) {
+        final flightCost = trimmedSection.substring(13).trim();
+        if (flightCost.isNotEmpty) {
+          _flightCostController.text = flightCost;
+          debugPrint('🏨 Parsed flight cost: $flightCost');
+        }
+      } else if (trimmedSection.startsWith('Pocket Money: ')) {
+        final pocketMoney = trimmedSection.substring(14).trim();
+        if (pocketMoney.isNotEmpty) {
+          _hasPocketMoney = true;
+          _pocketMoneyCostController.text = pocketMoney;
+          debugPrint('🏨 Parsed pocket money: $pocketMoney');
+        }
+      } else if (trimmedSection.startsWith('Additional Notes: ')) {
+        final additionalNotes = trimmedSection.substring(18).trim();
+        if (additionalNotes.isNotEmpty) {
+          _notesController.text = additionalNotes;
+          debugPrint('🏨 Parsed additional notes: $additionalNotes');
+        }
+      }
+    }
+  }
+
   // OCR data extraction handler - similar to job page
-  void _handleOcrDataExtracted(Map<String, dynamic> extractedData) {
+  Future<void> _handleOcrDataExtracted(
+      Map<String, dynamic> extractedData) async {
     debugPrint('=== ON STAY PAGE FORM HANDLER CALLED ===');
     debugPrint('OCR Data received: $extractedData');
     debugPrint('Keys received: ${extractedData.keys.toList()}');
@@ -143,12 +216,12 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
           _startDate = DateTime.parse(extractedData['checkInDate']);
           debugPrint('Setting check-in date from OCR: $_startDate');
         } catch (e) {
-          _startDate = DateTime(2025, 7, 21);
+          _startDate = DateTime.now();
           debugPrint(
-              'Failed to parse check-in date, using default: $_startDate');
+              'Failed to parse check-in date, using current date: $_startDate');
         }
       } else {
-        _startDate = DateTime(2025, 7, 21);
+        _startDate = DateTime.now();
       }
 
       if (extractedData['checkOutDate'] != null) {
@@ -156,12 +229,12 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
           _endDate = DateTime.parse(extractedData['checkOutDate']);
           debugPrint('Setting check-out date from OCR: $_endDate');
         } catch (e) {
-          _endDate = DateTime(2025, 7, 23);
+          _endDate = DateTime.now().add(const Duration(days: 2));
           debugPrint(
-              'Failed to parse check-out date, using default: $_endDate');
+              'Failed to parse check-out date, using current date + 2 days: $_endDate');
         }
       } else {
-        _endDate = DateTime(2025, 7, 23);
+        _endDate = DateTime.now().add(const Duration(days: 2));
       }
 
       // Populate form fields with extracted data
@@ -239,6 +312,57 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
       if (extractedData['notes'] != null) {
         debugPrint('Setting notes: ${extractedData['notes']}');
         _notesController.text = extractedData['notes'];
+      }
+
+      // Handle accommodation-specific fields
+      if (extractedData['checkInDate'] != null) {
+        debugPrint('Setting check-in date: ${extractedData['checkInDate']}');
+        try {
+          _startDate = DateTime.parse(extractedData['checkInDate']);
+        } catch (e) {
+          debugPrint('Error parsing check-in date: $e');
+        }
+      }
+
+      if (extractedData['checkOutDate'] != null) {
+        debugPrint('Setting check-out date: ${extractedData['checkOutDate']}');
+        try {
+          _endDate = DateTime.parse(extractedData['checkOutDate']);
+        } catch (e) {
+          debugPrint('Error parsing check-out date: $e');
+        }
+      }
+
+      if (extractedData['hotelAddress'] != null) {
+        debugPrint('Setting hotel address: ${extractedData['hotelAddress']}');
+        _hotelAddressController.text = extractedData['hotelAddress'];
+      }
+
+      if (extractedData['hotelCost'] != null) {
+        debugPrint('Setting hotel cost: ${extractedData['hotelCost']}');
+        _hotelCostController.text = extractedData['hotelCost'].toString();
+      }
+
+      if (extractedData['pocketMoney'] != null) {
+        debugPrint('Setting pocket money: ${extractedData['pocketMoney']}');
+        _pocketMoneyCostController.text =
+            extractedData['pocketMoney'].toString();
+      }
+
+      if (extractedData['agencyName'] != null) {
+        debugPrint('Setting agency name: ${extractedData['agencyName']}');
+        _agencyNameController.text = extractedData['agencyName'];
+      }
+
+      if (extractedData['agencyAddress'] != null) {
+        debugPrint('Setting agency address: ${extractedData['agencyAddress']}');
+        _agencyAddressController.text = extractedData['agencyAddress'];
+      }
+
+      if (extractedData['contractDetails'] != null) {
+        debugPrint(
+            'Setting contract details: ${extractedData['contractDetails']}');
+        _contractController.text = extractedData['contractDetails'];
       }
       // Enhanced hotel cost extraction with multiple field names
       String? hotelCostValue;
@@ -322,32 +446,158 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
             'Setting contract from contract field: ${extractedData['contract']}');
         _contractController.text = extractedData['contract'];
       }
-      // Extract and set agent
+      // Agent matching moved outside setState - see below
       if (extractedData['bookingAgent'] != null ||
           extractedData['agent'] != null) {
-        final agentName =
-            extractedData['bookingAgent'] ?? extractedData['agent'];
-        debugPrint('Setting agent: $agentName');
-
-        // Simple agent matching based on known agents
-        final agentNameLower = agentName.toString().toLowerCase();
-        if (agentNameLower.contains('ogbhai')) {
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj'; // ogbhai's ID
-          debugPrint('Agent ID set to: $_selectedAgentId (ogbhai)');
-        } else if (agentNameLower.contains('sarah') ||
-            agentNameLower.contains('johnson')) {
-          _selectedAgentId = 'jy07nJzMq9ZvahfeJBAa'; // Sarah Johnson's ID
-          debugPrint('Agent ID set to: $_selectedAgentId (Sarah Johnson)');
-        }
+        debugPrint('✅ Agent will be set after setState');
+      } else {
+        debugPrint('❌ No agent found in OCR data');
       }
     });
     debugPrint('✅ OCR data extraction completed for on stay');
 
-    // Auto-submit after OCR processing with longer delay to ensure all fields are populated
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      debugPrint('🚀 Auto-submitting on stay after OCR...');
-      _saveStay();
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(extractedData);
+
+    // Handle agent matching after setState (async operation)
+    if (extractedData['bookingAgent'] != null ||
+        extractedData['agent'] != null) {
+      final agentName = extractedData['bookingAgent'] ?? extractedData['agent'];
+      debugPrint('🔍 Now matching agent: $agentName');
+      await _matchAgentIntelligently(agentName.toString());
+    }
+
+    // Auto-submit disabled for testing
+    // Future.delayed(const Duration(milliseconds: 1500), () {
+    //   debugPrint('🚀 Auto-submitting on stay after OCR...');
+    //   _saveStay();
+    // });
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
     });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
   }
 
   @override
@@ -362,6 +612,13 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
     _pocketMoneyCostController.dispose();
     _notesController.dispose();
     _scrollController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
@@ -396,10 +653,11 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
                       debugPrint('OCR Widget callback received data: $data');
                       _handleOcrDataExtracted(data);
                     },
-                    onAutoSubmit: () {
-                      debugPrint('Auto-submitting on stay form after OCR...');
-                      _saveStay();
-                    },
+                    // Auto-submit disabled for testing
+                    // onAutoSubmit: () {
+                    //   debugPrint('Auto-submitting on stay form after OCR...');
+                    //   _saveStay();
+                    // },
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -448,9 +706,13 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               ),
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Agency Name *',
+            TextFormField(
               controller: _agencyNameController,
+              focusNode: _manualFocusNodes[0], // Agency Name
+              decoration: const InputDecoration(
+                labelText: 'Agency Name *',
+                border: OutlineInputBorder(),
+              ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Agency name is required';
@@ -459,10 +721,14 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               },
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Agency Address *',
+            TextFormField(
               controller: _agencyAddressController,
+              focusNode: _manualFocusNodes[1], // Agency Address
               maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Agency Address *',
+                border: OutlineInputBorder(),
+              ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Agency address is required';
@@ -562,9 +828,13 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               ),
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Location *',
+            TextFormField(
               controller: _locationController,
+              focusNode: _manualFocusNodes[2], // Location
+              decoration: const InputDecoration(
+                labelText: 'Location *',
+                border: OutlineInputBorder(),
+              ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Location is required';
@@ -634,10 +904,14 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               ),
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Contract Details',
+            TextFormField(
               controller: _contractController,
+              focusNode: _manualFocusNodes[3], // Contract Details
               maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Contract Details',
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -796,10 +1070,14 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               ),
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Hotel/Apartment Address *',
+            TextFormField(
               controller: _hotelAddressController,
+              focusNode: _manualFocusNodes[4], // Hotel/Apartment Address
               maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Hotel/Apartment Address *',
+                border: OutlineInputBorder(),
+              ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Hotel/Apartment address is required';
@@ -808,10 +1086,14 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               },
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Hotel Cost',
+            TextFormField(
               controller: _hotelCostController,
+              focusNode: _manualFocusNodes[5], // Hotel Cost
               keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Hotel Cost',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
@@ -857,10 +1139,14 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
             ),
             if (_hasPocketMoney) ...[
               const SizedBox(height: 16),
-              _formNavigation.createInputField(
-                label: 'Pocket Money Cost',
+              TextFormField(
                 controller: _pocketMoneyCostController,
+                focusNode: _manualFocusNodes[6], // Pocket Money Cost
                 keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Pocket Money Cost',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ],
           ],
@@ -886,10 +1172,14 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
               ),
             ),
             const SizedBox(height: 16),
-            _formNavigation.createInputField(
-              label: 'Notes',
+            TextFormField(
               controller: _notesController,
+              focusNode: _manualFocusNodes[7], // Notes
               maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
@@ -1042,6 +1332,7 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
             : _agencyNameController.text.trim(),
         'contact_phone': null,
         'contact_email': null,
+        'agent_id': _selectedAgentId,
         'status': 'confirmed',
         'payment_status': 'unpaid',
         'notes': _buildNotesString(),
@@ -1097,10 +1388,6 @@ class _NewOnStayPageState extends State<NewOnStayPage> {
 
     if (_agencyAddressController.text.trim().isNotEmpty) {
       notesParts.add('Agency Address: ${_agencyAddressController.text.trim()}');
-    }
-
-    if (_selectedAgentId != null) {
-      notesParts.add('Agent ID: $_selectedAgentId');
     }
 
     if (_contractController.text.trim().isNotEmpty) {

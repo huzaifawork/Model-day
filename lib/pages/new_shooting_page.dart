@@ -6,6 +6,7 @@ import 'package:new_flutter/widgets/ui/agent_dropdown.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/models/shooting.dart';
 import 'package:new_flutter/services/shootings_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/widgets/ocr_upload_widget.dart';
 import 'package:intl/intl.dart';
 
@@ -180,7 +181,7 @@ class _NewShootingPageState extends State<NewShootingPage> {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> data) {
+  Future<void> _handleOcrDataExtracted(Map<String, dynamic> data) async {
     debugPrint('🎬 OCR data extracted for shooting: $data');
 
     setState(() {
@@ -252,6 +253,114 @@ class _NewShootingPageState extends State<NewShootingPage> {
     });
 
     debugPrint('🎬 Shooting form populated with OCR data');
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(data);
+
+    // Handle agent matching after setState (async operation)
+    if (data['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${data['bookingAgent']}');
+      await _matchAgentIntelligently(data['bookingAgent'].toString());
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+    
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agents = await AgentsService().getAgents();
+      if (agents.isEmpty) {
+        debugPrint('⚠️ No agents available in system');
+        return;
+      }
+
+      // Clean and normalize the extracted agent name
+      final cleanExtracted = extractedAgentName.toLowerCase().trim();
+      debugPrint('🧹 Cleaned extracted name: "$cleanExtracted"');
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == cleanExtracted) {
+          debugPrint('✅ Exact match found: ${agent.name}');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(cleanExtracted) ||
+            cleanExtracted.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name}');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
   }
 
   Future<void> _selectDate() async {
@@ -385,10 +494,11 @@ class _NewShootingPageState extends State<NewShootingPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting shooting form after OCR...');
-                    _handleSubmit();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting shooting form after OCR...');
+                  //   _handleSubmit();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -541,7 +651,7 @@ class _NewShootingPageState extends State<NewShootingPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedJobType.isNotEmpty &&
+            initialValue: _selectedJobType.isNotEmpty &&
                     _jobTypes.contains(_selectedJobType)
                 ? _selectedJobType
                 : null,
@@ -729,7 +839,7 @@ class _NewShootingPageState extends State<NewShootingPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _statusOptions.contains(_selectedStatus)
+            initialValue: _statusOptions.contains(_selectedStatus)
                 ? _selectedStatus
                 : null,
             decoration: const InputDecoration(
@@ -791,7 +901,7 @@ class _NewShootingPageState extends State<NewShootingPage> {
                   border: Border.all(color: const Color(0xFF2E2E2E)),
                 ),
                 child: DropdownButtonFormField<String>(
-                  value: _currencies.contains(_selectedCurrency)
+                  initialValue: _currencies.contains(_selectedCurrency)
                       ? _selectedCurrency
                       : null,
                   decoration: const InputDecoration(

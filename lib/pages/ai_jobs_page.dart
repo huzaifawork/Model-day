@@ -4,7 +4,11 @@ import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/models/ai_job.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/ai_jobs_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
+import 'package:new_flutter/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AiJobsPage extends StatefulWidget {
   const AiJobsPage({super.key});
@@ -17,6 +21,8 @@ class _AiJobsPageState extends State<AiJobsPage> {
   List<AiJob> _aiJobs = [];
   List<AiJob> _filteredAIJobs = [];
   bool _isLoading = true;
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
   bool _isGridView = true;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
@@ -24,7 +30,25 @@ class _AiJobsPageState extends State<AiJobsPage> {
   @override
   void initState() {
     super.initState();
+    _loadAgents();
     _loadAIJobs();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      if (mounted) {
+        setState(() {
+          _agentCache = {
+            for (final agent in agents)
+              if (agent.id != null) agent.id!: agent
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -39,7 +63,8 @@ class _AiJobsPageState extends State<AiJobsPage> {
     setState(() => _isLoading = true);
     try {
       final aiJobs = await AiJobsService.list();
-      debugPrint('🤖 AiJobsPage._loadAIJobs() - Loaded ${aiJobs.length} AI jobs');
+      debugPrint(
+          '🤖 AiJobsPage._loadAIJobs() - Loaded ${aiJobs.length} AI jobs');
       if (!mounted) return;
       setState(() {
         _aiJobs = aiJobs;
@@ -47,7 +72,8 @@ class _AiJobsPageState extends State<AiJobsPage> {
         _isLoading = false;
       });
       _applyFilters();
-      debugPrint('🤖 AiJobsPage._loadAIJobs() - Applied filters, showing ${_filteredAIJobs.length} AI jobs');
+      debugPrint(
+          '🤖 AiJobsPage._loadAIJobs() - Applied filters, showing ${_filteredAIJobs.length} AI jobs');
     } catch (e) {
       debugPrint('❌ AiJobsPage._loadAIJobs() - Error: $e');
       if (!mounted) return;
@@ -157,7 +183,8 @@ class _AiJobsPageState extends State<AiJobsPage> {
             mainAxisSpacing: 12,
           ),
           itemCount: _filteredAIJobs.length,
-          itemBuilder: (context, index) => _buildAIJobCard(_filteredAIJobs[index]),
+          itemBuilder: (context, index) =>
+              _buildAIJobCard(_filteredAIJobs[index]),
         );
       },
     );
@@ -228,27 +255,28 @@ class _AiJobsPageState extends State<AiJobsPage> {
                   ),
                 ],
               ),
-            const SizedBox(height: 8),
-            Text(aiJob.type ?? 'No Type',
-                style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                const SizedBox(width: 4),
-                Text(_formatDate(aiJob.date),
-                    style: const TextStyle(color: Colors.grey)),
-              ],
-            ),
-            const Spacer(),
-            if (aiJob.rate != null)
-              Text('\$${aiJob.rate!.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.purple)),
-          ],
-        ),
+              const SizedBox(height: 8),
+              Text(aiJob.type ?? 'No Type',
+                  style: const TextStyle(color: Colors.grey)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today,
+                      size: 16, color: Colors.grey),
+                  const SizedBox(width: 4),
+                  Text(_formatDate(aiJob.date),
+                      style: const TextStyle(color: Colors.grey)),
+                ],
+              ),
+              const Spacer(),
+              if (aiJob.rate != null)
+                Text('\$${aiJob.rate!.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.purple)),
+            ],
+          ),
         ),
       ),
     );
@@ -355,7 +383,8 @@ class _AiJobsPageState extends State<AiJobsPage> {
         ExportButton(
           type: ExportType.jobs,
           data: _filteredAIJobs,
-          customFilename: 'ai_jobs_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
+          customFilename:
+              'ai_jobs_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.csv',
         ),
         const SizedBox(width: 8),
         IconButton(
@@ -385,63 +414,255 @@ class _AiJobsPageState extends State<AiJobsPage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(aiJob.clientName),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (aiJob.type != null) ...[
-                  Text('Type: ${aiJob.type}'),
-                  const SizedBox(height: 8),
-                ],
-                Text('Date: ${_formatDate(aiJob.date)}'),
-                const SizedBox(height: 8),
-                if (aiJob.location != null) ...[
-                  Row(
-                    children: [
-                      const Text('Location: '),
-                      Expanded(
-                        child: ClickableContactInfo(
-                          text: aiJob.location!,
-                          type: ContactType.location,
-                          showIcon: false,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                if (aiJob.rate != null) ...[
-                  Text('Rate: \$${aiJob.rate!.toStringAsFixed(2)}'),
-                  const SizedBox(height: 8),
-                ],
-                Text('Status: ${aiJob.status ?? 'Unknown'}'),
-                const SizedBox(height: 8),
-                if (aiJob.description != null) ...[
-                  Text('Description: ${aiJob.description}'),
-                  const SizedBox(height: 8),
-                ],
-              ],
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            aiJob.clientName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _buildAIJobDetails(aiJob),
+              ),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.goldColor,
+              ),
               child: const Text('Close'),
             ),
-            TextButton(
+            ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
                 _editAIJob(aiJob);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.goldColor,
+                foregroundColor: Colors.black,
+              ),
               child: const Text('Edit'),
             ),
           ],
         );
       },
     );
+  }
+
+  List<Widget> _buildAIJobDetails(AiJob aiJob) {
+    List<Widget> details = [];
+
+    // Type
+    if (aiJob.type != null && aiJob.type!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Type', aiJob.type!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date
+    details.addAll([
+      _buildDetailRow('Date', _formatDate(aiJob.date)),
+      const SizedBox(height: 8),
+    ]);
+
+    // Location
+    if (aiJob.location != null && aiJob.location!.isNotEmpty) {
+      details.addAll([
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                'Location:',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            Expanded(
+              child: ClickableContactInfo(
+                text: aiJob.location!,
+                type: ContactType.location,
+                showIcon: false,
+                textColor: Colors.blue[400],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Rate
+    if (aiJob.rate != null && aiJob.rate! > 0) {
+      details.addAll([
+        _buildDetailRow('Rate', '\$${aiJob.rate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information
+    if (aiJob.bookingAgent != null && aiJob.bookingAgent!.isNotEmpty) {
+      details.addAll([
+        _buildAgentRow('Agent', aiJob.bookingAgent!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Status
+    details.addAll([
+      _buildDetailRow('Status', (aiJob.status ?? 'Unknown').toUpperCase()),
+      const SizedBox(height: 8),
+    ]);
+
+    // Description
+    if (aiJob.description != null && aiJob.description!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Description', aiJob.description!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentIdOrName) {
+    // Get agent from cache, fallback to creating a dummy agent with the provided name
+    final agent = _agentCache[agentIdOrName] ?? Agent(name: agentIdOrName);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent.name,
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              InkWell(
+                onTap: () => _sendWhatsAppToAgent(agent),
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.chat,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (context.mounted) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
   }
 
   void _editAIJob(AiJob aiJob) async {
@@ -461,7 +682,8 @@ class _AiJobsPageState extends State<AiJobsPage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Delete AI Job'),
-          content: Text('Are you sure you want to delete "${aiJob.clientName}"?'),
+          content:
+              Text('Are you sure you want to delete "${aiJob.clientName}"?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),

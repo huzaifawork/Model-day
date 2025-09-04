@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
 import 'package:new_flutter/models/event.dart';
+import 'package:new_flutter/models/agent.dart';
 import 'package:new_flutter/services/events_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:new_flutter/widgets/export_button.dart';
 import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
+import 'package:new_flutter/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class OtherPage extends StatefulWidget {
   const OtherPage({super.key});
@@ -22,11 +26,34 @@ class _OtherPageState extends State<OtherPage> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final EventsService _eventsService = EventsService();
+  Map<String, Agent> _agentCache =
+      {}; // Cache for agent ID -> Agent object mapping
 
   @override
   void initState() {
     super.initState();
-    _loadOtherEvents();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    // Load agents first, then events
+    await _loadAgents();
+    await _loadOtherEvents();
+  }
+
+  Future<void> _loadAgents() async {
+    try {
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+      setState(() {
+        _agentCache = {
+          for (final agent in agents)
+            if (agent.id != null) agent.id!: agent
+        };
+      });
+    } catch (e) {
+      debugPrint('Error loading agents: $e');
+    }
   }
 
   @override
@@ -46,6 +73,12 @@ class _OtherPageState extends State<OtherPage> {
           allEvents.where((event) => event.type == EventType.other).toList();
       debugPrint(
           '🔄 OtherPage._loadOtherEvents() - Loaded ${otherEvents.length} other events');
+
+      // Debug each event's agent info
+      for (final event in otherEvents) {
+        debugPrint(
+            '  📋 Event: ${event.clientName ?? 'Unnamed'} - Agent ID: ${event.agentId}');
+      }
       if (!mounted) return;
       setState(() {
         _otherEvents = otherEvents;
@@ -96,9 +129,17 @@ class _OtherPageState extends State<OtherPage> {
     _applyFilters();
   }
 
-  String _formatDate(DateTime? date) {
-    if (date == null) return 'No Date';
-    return DateFormat('MMM d, yyyy').format(date);
+  String _formatDateRange(Event event) {
+    if (event.date == null) return 'No Date';
+
+    String dateText = DateFormat('MMM d, yyyy').format(event.date!);
+
+    if (event.endDate != null &&
+        !event.endDate!.isAtSameMomentAs(event.date!)) {
+      dateText += ' - ${DateFormat('MMM d, yyyy').format(event.endDate!)}';
+    }
+
+    return dateText;
   }
 
   Widget _buildContent() {
@@ -153,7 +194,7 @@ class _OtherPageState extends State<OtherPage> {
                 arguments: {'eventType': EventType.other},
               );
               if (result == true && mounted) {
-                _loadOtherEvents();
+                _loadData();
               }
             },
             icon: const Icon(Icons.add),
@@ -208,7 +249,7 @@ class _OtherPageState extends State<OtherPage> {
               arguments: {'eventType': EventType.other},
             );
             if (result == true && mounted) {
-              _loadOtherEvents();
+              _loadData();
             }
           },
         ),
@@ -272,12 +313,12 @@ class _OtherPageState extends State<OtherPage> {
     final eventName = event.additionalData?['event_name'] ??
         event.clientName ??
         'Unnamed Event';
-    final dateStr = _formatDate(event.date);
+    final dateStr = _formatDateRange(event);
 
     return Card(
       elevation: 2,
       child: InkWell(
-        onTap: () => _editEvent(event),
+        onTap: () => _showEventPreview(event),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -444,12 +485,12 @@ class _OtherPageState extends State<OtherPage> {
     final eventName = event.additionalData?['event_name'] ??
         event.clientName ??
         'Unnamed Event';
-    final dateStr = _formatDate(event.date);
+    final dateStr = _formatDateRange(event);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        onTap: () => _editEvent(event),
+        onTap: () => _showEventPreview(event),
         leading: const CircleAvatar(
           backgroundColor: Colors.orange,
           child: Icon(Icons.more_horiz, color: Colors.white),
@@ -556,6 +597,340 @@ class _OtherPageState extends State<OtherPage> {
     );
   }
 
+  void _showEventPreview(Event event) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: Text(
+          event.clientName ?? 'Other Event',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.8,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: _buildEventDetails(event),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _editEvent(event);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Edit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildEventDetails(Event event) {
+    List<Widget> details = [];
+
+    // Client Name
+    if (event.clientName != null && event.clientName!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Client', event.clientName!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Date
+    if (event.date != null) {
+      details.addAll([
+        _buildDetailRow('Date', _formatDateRange(event)),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Time
+    if (event.startTime != null && event.startTime!.isNotEmpty) {
+      String timeText = event.startTime!;
+      if (event.endTime != null && event.endTime!.isNotEmpty) {
+        timeText += ' - ${event.endTime!}';
+      }
+      details.addAll([
+        _buildDetailRow('Time', timeText),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Location
+    if (event.location != null && event.location!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Location', event.location!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Agent Information
+    debugPrint('🔍 Other Event Agent Debug:');
+    debugPrint('  - event.agentId: ${event.agentId}');
+    debugPrint('  - _agentCache.length: ${_agentCache.length}');
+    debugPrint('  - _agentCache.keys: ${_agentCache.keys.toList()}');
+
+    if (event.agentId != null && event.agentId!.isNotEmpty) {
+      final agent = _agentCache[event.agentId!];
+      debugPrint('  - Found agent: ${agent?.name ?? 'NOT FOUND'}');
+      details.addAll([
+        _buildAgentRow('Agent', event.agentId!),
+        const SizedBox(height: 8),
+      ]);
+    } else {
+      debugPrint('  - No agent ID found in event');
+    }
+
+    // Status
+    if (event.status != null) {
+      details.addAll([
+        _buildDetailRow(
+            'Status', event.status.toString().split('.').last.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Payment Status
+    if (event.paymentStatus != null) {
+      details.addAll([
+        _buildDetailRow('Payment',
+            event.paymentStatus.toString().split('.').last.toUpperCase()),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Day Rate
+    if (event.dayRate != null && event.dayRate! > 0) {
+      details.addAll([
+        _buildDetailRow('Day Rate', '£${event.dayRate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Usage Rate
+    if (event.usageRate != null && event.usageRate! > 0) {
+      details.addAll([
+        _buildDetailRow(
+            'Usage Rate', '£${event.usageRate!.toStringAsFixed(2)}'),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Notes
+    if (event.notes != null && event.notes!.isNotEmpty) {
+      details.addAll([
+        _buildDetailRow('Notes', event.notes!),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    // Contact Information (if available in additionalData)
+    if (event.additionalData != null) {
+      final email = event.additionalData!['clientEmail'] as String?;
+      final phone = event.additionalData!['clientPhone'] as String?;
+
+      if (email != null && email.isNotEmpty) {
+        details.addAll([
+          _buildClickableDetailRow('Email', email, ContactType.email),
+          const SizedBox(height: 8),
+        ]);
+      }
+
+      if (phone != null && phone.isNotEmpty) {
+        details.addAll([
+          _buildClickableDetailRow('Phone', phone, ContactType.phone),
+          const SizedBox(height: 8),
+        ]);
+      }
+    }
+
+    // Files
+    if (event.files != null && event.files!.isNotEmpty) {
+      details.addAll([
+        FilePreviewWidget(
+          fileData: event.files,
+          showTitle: true,
+        ),
+        const SizedBox(height: 8),
+      ]);
+    }
+
+    return details;
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClickableDetailRow(
+      String label, String value, ContactType type) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ClickableContactInfo(
+            text: value,
+            type: type,
+            showIcon: false,
+            textColor: Colors.blue[300],
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAgentRow(String label, String agentId) {
+    // Get agent from cache
+    final agent = _agentCache[agentId];
+    debugPrint('🔍 _buildAgentRow called with agentId: $agentId');
+    debugPrint('🔍 Found agent: ${agent?.name ?? 'NULL'}');
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Text(
+                agent?.name ?? 'Unknown Agent',
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(width: 6),
+              if (agent != null)
+                InkWell(
+                  onTap: () => _sendWhatsAppToAgent(agent),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.chat,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _sendWhatsAppToAgent(Agent agent) async {
+    // Check if agent has a phone number
+    if (agent.phone == null || agent.phone!.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No phone number available for ${agent.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Use the same approach as agents page
+    final whatsappUrl = 'https://wa.me/${_cleanPhoneNumber(agent.phone!)}';
+    final currentContext = context;
+
+    try {
+      await _launchUrl(whatsappUrl);
+    } catch (e) {
+      if (currentContext.mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text('Error opening WhatsApp: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  String _cleanPhoneNumber(String phone) {
+    // Remove all non-digit characters except +
+    return phone.replaceAll(RegExp(r'[^\d+]'), '');
+  }
+
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      throw 'Could not launch $url';
+    }
+  }
+
   void _editEvent(Event event) async {
     final result = await Navigator.pushNamed(
       context,
@@ -566,7 +941,7 @@ class _OtherPageState extends State<OtherPage> {
       },
     );
     if (result == true && mounted) {
-      _loadOtherEvents();
+      _loadData();
     }
   }
 
@@ -597,7 +972,7 @@ class _OtherPageState extends State<OtherPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Event deleted successfully')),
           );
-          _loadOtherEvents();
+          _loadData();
         } else {
           throw Exception('Failed to delete event');
         }

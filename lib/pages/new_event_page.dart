@@ -13,7 +13,9 @@ import 'package:new_flutter/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:new_flutter/services/file_upload_service.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NewEventPage extends StatefulWidget {
   final EventType eventType;
@@ -61,8 +63,13 @@ class _NewEventPageState extends State<NewEventPage> {
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
 
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
+
   // Form State
-  DateTime _selectedDate = DateTime(2025, 7, 14);
+  DateTime _selectedDate = DateTime.now();
   DateTime? _endDate;
   TimeOfDay? _startTime;
   TimeOfDay? _endTime;
@@ -114,6 +121,7 @@ class _NewEventPageState extends State<NewEventPage> {
     'Fittings',
     'Lookbook',
     'Looks',
+    'On Stay',
     'Show',
     'Showroom',
     'TVC',
@@ -126,6 +134,9 @@ class _NewEventPageState extends State<NewEventPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (estimate 15 text fields)
+    _manualFocusNodes = List.generate(15, (index) => FocusNode());
 
     debugPrint('🔍 NewEventPage.initState() - Event type: ${widget.eventType}');
     debugPrint(
@@ -146,6 +157,14 @@ class _NewEventPageState extends State<NewEventPage> {
       });
     } else {
       debugPrint('ℹ️ NewEventPage.initState() - Create mode');
+
+      // Set default times for new options
+      if (widget.eventType == EventType.option) {
+        _startTime = const TimeOfDay(hour: 6, minute: 0); // 6:00 AM default
+        _endTime = const TimeOfDay(hour: 14, minute: 0); // 2:00 PM default
+        debugPrint('Set default times for new option: 6:00 AM - 2:00 PM');
+      }
+
       // Check for arguments passed via route
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final args = ModalRoute.of(context)?.settings.arguments;
@@ -413,25 +432,41 @@ class _NewEventPageState extends State<NewEventPage> {
     _contractController.dispose();
     _transferToJobController.dispose();
     _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> extractedData) {
+  Future<void> _handleOcrDataExtracted(
+      Map<String, dynamic> extractedData) async {
     debugPrint('=== NEW EVENT PAGE FORM HANDLER CALLED ===');
     debugPrint('OCR Data received: $extractedData');
+    debugPrint('OCR Keys: ${extractedData.keys.toList()}');
     setState(() {
       // Populate form fields with extracted data
       if (extractedData['clientName'] != null) {
-        debugPrint('Setting client name: ${extractedData['clientName']}');
+        debugPrint('✅ Setting client name: ${extractedData['clientName']}');
         _clientNameController.text = extractedData['clientName'];
+      } else {
+        debugPrint('❌ No clientName found in OCR data');
       }
+
       if (extractedData['location'] != null) {
-        debugPrint('Setting location: ${extractedData['location']}');
+        debugPrint('✅ Setting location: ${extractedData['location']}');
         _locationController.text = extractedData['location'];
+      } else {
+        debugPrint('❌ No location found in OCR data');
       }
+
       if (extractedData['notes'] != null) {
-        debugPrint('Setting notes: ${extractedData['notes']}');
+        debugPrint('✅ Setting notes: ${extractedData['notes']}');
         _notesController.text = extractedData['notes'];
+      } else {
+        debugPrint('❌ No notes found in OCR data');
       }
       if (extractedData['date'] != null) {
         debugPrint('Setting date: ${extractedData['date']}');
@@ -440,51 +475,32 @@ class _NewEventPageState extends State<NewEventPage> {
           debugPrint('Date parsed successfully: $_selectedDate');
         } catch (e) {
           debugPrint('Error parsing date: $e');
-          // Try different date formats
-          try {
-            final dateStr = extractedData['date'].toString().toLowerCase();
-            if (dateStr.contains('july')) {
-              _selectedDate = DateTime(2025, 7, 15);
-              debugPrint('Set July date: $_selectedDate');
-            } else if (dateStr.contains('march')) {
-              _selectedDate = DateTime(2024, 3, 15);
-              debugPrint('Set March date: $_selectedDate');
-            }
-          } catch (e2) {
-            debugPrint('Error parsing date format: $e2');
-          }
+          // If date parsing fails, keep the current date (DateTime.now())
+          debugPrint('Keeping current date: $_selectedDate');
         }
       }
       if (extractedData['dayRate'] != null) {
-        debugPrint('Setting day rate: ${extractedData['dayRate']}');
+        debugPrint('✅ Setting day rate: ${extractedData['dayRate']}');
         _dayRateController.text = extractedData['dayRate'].toString();
-      }
-      if (extractedData['usageRate'] != null) {
-        debugPrint('Setting usage rate: ${extractedData['usageRate']}');
-        _usageRateController.text = extractedData['usageRate'].toString();
-      }
-      if (extractedData['bookingAgent'] != null) {
-        debugPrint('Setting agent: ${extractedData['bookingAgent']}');
-        final extractedAgent =
-            extractedData['bookingAgent'].toString().toLowerCase();
-
-        // Handle OCR typos and variations of "ogbhai"
-        if (extractedAgent.contains('ogbhai') ||
-            extractedAgent.contains('ogbhal') ||
-            extractedAgent.contains('ogbha') ||
-            extractedAgent.startsWith('ogb')) {
-          debugPrint('✅ Recognized ogbhai agent (with OCR variations)');
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj'; // Use the actual agent ID
-          debugPrint('Agent ID set to: $_selectedAgentId');
-        } else {
-          debugPrint('⚠️ Unknown agent name, setting default');
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj'; // Default to ogbhai
-          debugPrint('Agent ID set to default: $_selectedAgentId');
-        }
       } else {
+        debugPrint('❌ No dayRate found in OCR data');
+      }
+
+      if (extractedData['usageRate'] != null) {
+        debugPrint('✅ Setting usage rate: ${extractedData['usageRate']}');
+        _usageRateController.text = extractedData['usageRate'].toString();
+      } else {
+        debugPrint('❌ No usageRate found in OCR data');
+      }
+
+      // Agent matching moved outside setState - see below
+      if (extractedData['bookingAgent'] != null) {
+        debugPrint('✅ Agent will be set after setState');
+      } else {
+        debugPrint('❌ No bookingAgent found in OCR data');
         // Set default agent if none extracted
         debugPrint('No agent found in OCR data, setting default agent ID');
-        _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj';
+        _selectedAgentId = 'ALPjsczvd1gDM5MsL4wU'; // Default to Sarah Johnson
         debugPrint('Default agent ID set to: $_selectedAgentId');
       }
 
@@ -595,14 +611,151 @@ class _NewEventPageState extends State<NewEventPage> {
 
     debugPrint('=== NEW EVENT PAGE FORM UPDATE COMPLETE ===');
 
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(extractedData);
+
+    // Handle agent matching after setState (async operation)
+    if (extractedData['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${extractedData['bookingAgent']}');
+      await _matchAgentIntelligently(extractedData['bookingAgent'].toString());
+    }
+
     // Show success message
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-            'Data extracted successfully! Please review and adjust as needed.'),
-        backgroundColor: AppTheme.successColor,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Data extracted successfully! Please review and adjust as needed.'),
+          backgroundColor: AppTheme.successColor,
+        ),
+      );
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
   }
 
   /// Parse time string and set start/end times
@@ -707,6 +860,16 @@ class _NewEventPageState extends State<NewEventPage> {
     if (_callTime == null) {
       _callTime = const TimeOfDay(hour: 9, minute: 0); // 9:00 AM default
       debugPrint('Set default call time: 9:00 AM');
+    }
+
+    // Set default start and end times for options if not set
+    if (_startTime == null) {
+      _startTime = const TimeOfDay(hour: 6, minute: 0); // 6:00 AM default
+      debugPrint('Set default start time: 6:00 AM');
+    }
+    if (_endTime == null) {
+      _endTime = const TimeOfDay(hour: 14, minute: 0); // 2:00 PM default
+      debugPrint('Set default end time: 2:00 PM');
     }
   }
 
@@ -1479,13 +1642,212 @@ class _NewEventPageState extends State<NewEventPage> {
     return data;
   }
 
+  Future<void> _handleOptionConfirmation() async {
+    debugPrint('🎯 Option confirmed! Converting to appropriate event...');
+
+    // Show confirmation dialog
+    final shouldConvert = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Confirm Option',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'This option will be converted to a job/event. This action cannot be undone. Continue?',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.goldColor,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldConvert == true) {
+      await _convertOptionToEvent();
+    } else {
+      // Revert status back to pending if user cancels
+      setState(() {
+        _selectedOptionStatus = OptionStatus.pending;
+      });
+    }
+  }
+
+  Future<void> _convertOptionToEvent() async {
+    try {
+      debugPrint('🔄 Converting option to event...');
+
+      // Determine event type based on option type
+      final optionType = _isCustomOptionType
+          ? _customTypeController.text
+          : (_selectedOptionType ?? 'Commercial');
+      EventType eventType = _getEventTypeFromOptionType(optionType);
+
+      // Create event data from current option data
+      final eventData = {
+        'client_name': _clientNameController.text,
+        'job_type': optionType,
+        'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
+        'location': _locationController.text,
+        'agent_id': _selectedAgentId,
+        'day_rate': double.tryParse(_dayRateController.text),
+        'currency': _selectedCurrency,
+        'status': 'scheduled',
+        'payment_status': 'unpaid',
+        'notes':
+            '${_notesController.text}\n\n[Converted from confirmed option]',
+        'created_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+
+      // Create the event in the appropriate collection
+      String? eventId = await _createEventInCollection(eventType, eventData);
+
+      if (eventId != null) {
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Option confirmed and converted to ${eventType.displayName}!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+
+          // Navigate back or to the new event
+          Navigator.pop(context, true);
+        }
+      } else {
+        throw Exception('Failed to create event');
+      }
+    } catch (e) {
+      debugPrint('❌ Error converting option to event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error converting option: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+
+        // Revert status back to pending
+        setState(() {
+          _selectedOptionStatus = OptionStatus.pending;
+        });
+      }
+    }
+  }
+
+  EventType _getEventTypeFromOptionType(String optionType) {
+    switch (optionType.toLowerCase()) {
+      case 'commercial':
+      case 'editorial':
+      case 'lookbook':
+      case 'print':
+      case 'web content':
+      case 'social media':
+        return EventType.job;
+      case 'fashion show':
+      case 'runway':
+        return EventType.casting;
+      case 'on stay':
+      case 'onstay':
+      case 'travel':
+      case 'accommodation':
+      case 'hotel':
+        return EventType.onStay;
+      case 'other':
+        return EventType.other;
+      default:
+        return EventType.job; // Default to job
+    }
+  }
+
+  Future<String?> _createEventInCollection(
+      EventType eventType, Map<String, dynamic> eventData) async {
+    try {
+      switch (eventType) {
+        case EventType.job:
+          // Create in jobs collection
+          final docRef = await FirebaseFirestore.instance
+              .collection('jobs')
+              .add(eventData);
+          return docRef.id;
+        case EventType.casting:
+          // Create in castings collection
+          final docRef = await FirebaseFirestore.instance
+              .collection('castings')
+              .add(eventData);
+          return docRef.id;
+        case EventType.onStay:
+          // Create in on_stay collection with OnStay-specific format
+          final onStayData = {
+            'location_name':
+                eventData['client_name'], // Use client name as location
+            'stay_type': 'On Stay',
+            'address': eventData['location'],
+            'check_in_date': eventData['date'],
+            'check_out_date': eventData['end_date'],
+            'cost': eventData['day_rate'] ?? 0.0,
+            'currency': eventData['currency'] ?? 'USD',
+            'contact_name': eventData['client_name'],
+            'agent_id': eventData['agent_id'],
+            'status': 'confirmed',
+            'payment_status': 'unpaid',
+            'notes': eventData['notes'],
+            'created_at': eventData['created_at'],
+            'updated_at': eventData['updated_at'],
+          };
+          final docRef = await FirebaseFirestore.instance
+              .collection('on_stay')
+              .add(onStayData);
+          return docRef.id;
+        case EventType.other:
+          // Create in events collection with type 'other'
+          eventData['type'] = 'other';
+          final docRef = await FirebaseFirestore.instance
+              .collection('events')
+              .add(eventData);
+          return docRef.id;
+        default:
+          // Create in events collection
+          eventData['type'] = eventType.toString().split('.').last;
+          final docRef = await FirebaseFirestore.instance
+              .collection('events')
+              .add(eventData);
+          return docRef.id;
+      }
+    } catch (e) {
+      debugPrint('❌ Error creating event in collection: $e');
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppLayout(
       currentPage: '/new-event',
       title: _pageTitle,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom +
+              200, // Much more space for FAB
+        ),
         child: Form(
           key: _formKey,
           child: Column(
@@ -1519,10 +1881,11 @@ class _NewEventPageState extends State<NewEventPage> {
                   !_isEditMode) ...[
                 OcrUploadWidget(
                   onDataExtracted: _handleOcrDataExtracted,
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting event form after OCR...');
-                    _createEvent();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting event form after OCR...');
+                  //   _createEvent();
+                  // },
                 ),
                 const SizedBox(height: 32),
               ],
@@ -1549,6 +1912,9 @@ class _NewEventPageState extends State<NewEventPage> {
                   isLoading: _isLoading,
                 ),
               ),
+
+              // Fixed space to separate form content from Next button area
+              const SizedBox(height: 120),
             ],
           ),
         ),
@@ -1562,9 +1928,13 @@ class _NewEventPageState extends State<NewEventPage> {
     // Common fields for most event types
     if (_needsClientName()) {
       fields.addAll([
-        _formNavigation.createInputField(
+        TextFormField(
           controller: _clientNameController,
-          placeholder: 'Client name *',
+          focusNode: _manualFocusNodes[0], // Client Name
+          decoration: const InputDecoration(
+            labelText: 'Client name *',
+            border: OutlineInputBorder(),
+          ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
               return 'Client name is required';
@@ -1591,9 +1961,13 @@ class _NewEventPageState extends State<NewEventPage> {
     if (_needsLocation()) {
       fields.addAll([
         const SizedBox(height: 16),
-        _formNavigation.createInputField(
+        TextFormField(
           controller: _locationController,
-          placeholder: 'Location',
+          focusNode: _manualFocusNodes[1], // Location
+          decoration: const InputDecoration(
+            labelText: 'Location',
+            border: OutlineInputBorder(),
+          ),
         ),
       ]);
     }
@@ -1619,10 +1993,14 @@ class _NewEventPageState extends State<NewEventPage> {
     // Notes
     fields.addAll([
       const SizedBox(height: 24),
-      _formNavigation.createInputField(
+      TextFormField(
         controller: _notesController,
-        placeholder: 'Notes (optional)',
+        focusNode: _manualFocusNodes[2], // Notes
         maxLines: 3,
+        decoration: const InputDecoration(
+          labelText: 'Notes (optional)',
+          border: OutlineInputBorder(),
+        ),
       ),
     ]);
 
@@ -1637,8 +2015,7 @@ class _NewEventPageState extends State<NewEventPage> {
   }
 
   bool _needsTimeFields() {
-    return widget.eventType != EventType.onStay &&
-        widget.eventType != EventType.option;
+    return widget.eventType != EventType.onStay;
   }
 
   bool _needsLocation() {
@@ -1646,8 +2023,8 @@ class _NewEventPageState extends State<NewEventPage> {
   }
 
   bool _needsAgent() {
-    return widget.eventType != EventType.meeting &&
-        widget.eventType != EventType.other;
+    return widget.eventType != EventType.meeting;
+    // Include agent dropdown for all event types including 'other'
   }
 
   bool _needsRateFields() {
@@ -1723,9 +2100,13 @@ class _NewEventPageState extends State<NewEventPage> {
       ),
       const SizedBox(height: 16),
       if (_isCustomOptionType) ...[
-        _formNavigation.createInputField(
+        TextFormField(
           controller: _customTypeController,
-          placeholder: 'Enter custom option type',
+          focusNode: _manualFocusNodes[5], // Custom Option Type
+          decoration: const InputDecoration(
+            labelText: 'Enter custom option type',
+            border: OutlineInputBorder(),
+          ),
           validator: (value) {
             if (_isCustomOptionType &&
                 (value == null || value.trim().isEmpty)) {
@@ -1748,6 +2129,11 @@ class _NewEventPageState extends State<NewEventPage> {
             setState(() {
               _selectedOptionStatus = value;
             });
+
+            // Check if status changed to confirmed
+            if (value == OptionStatus.confirmed) {
+              _handleOptionConfirmation();
+            }
           }
         },
       ),
@@ -2090,6 +2476,7 @@ class _NewEventPageState extends State<NewEventPage> {
           Expanded(
             child: TextFormField(
               controller: _dayRateController,
+              focusNode: _manualFocusNodes[3], // Day Rate
               decoration: const InputDecoration(
                 labelText: 'Day Rate',
                 border: OutlineInputBorder(),
@@ -2121,6 +2508,7 @@ class _NewEventPageState extends State<NewEventPage> {
       const SizedBox(height: 16),
       TextFormField(
         controller: _usageRateController,
+        focusNode: _manualFocusNodes[4], // Usage Rate
         decoration: const InputDecoration(
           labelText: 'Usage Rate (optional)',
           border: OutlineInputBorder(),
@@ -2298,9 +2686,13 @@ class _NewEventPageState extends State<NewEventPage> {
       ),
       const SizedBox(height: 16),
       if (_isCustomJobType) ...[
-        _formNavigation.createInputField(
+        TextFormField(
           controller: _customTypeController,
-          placeholder: 'Enter custom job type',
+          focusNode: _manualFocusNodes[6], // Custom Job Type
+          decoration: const InputDecoration(
+            labelText: 'Enter custom job type',
+            border: OutlineInputBorder(),
+          ),
           validator: (value) {
             if (_isCustomJobType && (value == null || value.trim().isEmpty)) {
               return 'Job type is required';
@@ -2315,9 +2707,13 @@ class _NewEventPageState extends State<NewEventPage> {
 
   List<Widget> _buildTestFields() {
     return [
-      _formNavigation.createInputField(
+      TextFormField(
         controller: _photographerController,
-        placeholder: 'Photographer name *',
+        focusNode: _manualFocusNodes[7], // Photographer Name
+        decoration: const InputDecoration(
+          labelText: 'Photographer name *',
+          border: OutlineInputBorder(),
+        ),
         validator: (value) {
           if (value == null || value.trim().isEmpty) {
             return 'Photographer name is required';
@@ -2472,9 +2868,13 @@ class _NewEventPageState extends State<NewEventPage> {
 
   List<Widget> _buildOtherFields() {
     return [
-      _formNavigation.createInputField(
+      TextFormField(
         controller: _eventNameController,
-        placeholder: 'Event name *',
+        focusNode: _manualFocusNodes[5], // Event Name for "other" type
+        decoration: const InputDecoration(
+          labelText: 'Event name *',
+          border: OutlineInputBorder(),
+        ),
         validator: (value) {
           if (value == null || value.trim().isEmpty) {
             return 'Event name is required';

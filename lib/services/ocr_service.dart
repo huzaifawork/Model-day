@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'web_ocr_service.dart' if (dart.library.io) 'web_ocr_service_stub.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+import 'package:http/http.dart' as http;
 
 class OcrService {
   static final TextRecognizer _textRecognizer = TextRecognizer();
@@ -102,6 +104,55 @@ class OcrService {
       debugPrint('Error preprocessing image: $e');
       return imageFile; // Return original if preprocessing fails
     }
+  }
+
+  /// Check if a line could be a potential agency name
+  static bool _isPotentialAgencyName(String line) {
+    if (line.isEmpty || line.length < 2 || line.length > 100) {
+      return false;
+    }
+
+    // Skip lines that are clearly not agency names
+    final lowerLine = line.toLowerCase();
+    if (lowerLine.contains('contact') ||
+        lowerLine.contains('phone') ||
+        lowerLine.contains('email') ||
+        lowerLine.contains('address') ||
+        lowerLine.contains('www') ||
+        lowerLine.contains('http') ||
+        lowerLine.contains('@') ||
+        lowerLine.contains('street') ||
+        lowerLine.contains('avenue') ||
+        lowerLine.contains('road') ||
+        lowerLine.contains('city') ||
+        lowerLine.contains('state') ||
+        lowerLine.contains('zip') ||
+        lowerLine.contains('postal')) {
+      return false;
+    }
+
+    // Check if this looks like a company name
+    // 1. Contains common business words
+    if (lowerLine.contains(RegExp(
+        r'\b(agency|company|studio|firm|group|inc|ltd|llc|corp|corporation|enterprises|solutions|media|creative|marketing|advertising|pr|communications|design|digital|brand|consulting|services|partners|associates|international|global)\b'))) {
+      return true;
+    }
+
+    // 2. Is in all caps (common for business names)
+    if (line == line.toUpperCase() && line.contains(' ')) {
+      return true;
+    }
+
+    // 3. Is title case (each word capitalized)
+    final words = line.split(' ');
+    if (words.length >= 2 &&
+        words.length <= 6 &&
+        words.every(
+            (word) => word.isNotEmpty && word[0] == word[0].toUpperCase())) {
+      return true;
+    }
+
+    return false;
   }
 
   /// Parse date string to ISO format (YYYY-MM-DD)
@@ -356,7 +407,74 @@ class OcrService {
     return extractedData;
   }
 
-  /// Parse extracted text into structured data for Options and Jobs
+  /// AI-Powered text parsing using backend OpenAI integration
+  /// This method provides superior extraction compared to local parsing
+  static Future<Map<String, dynamic>> parseTextWithAI(String text) async {
+    debugPrint(
+        '🤖 AI OCR: Starting backend-powered intelligent text analysis...');
+    debugPrint('📝 Text length: ${text.length} characters');
+
+    try {
+      // Call the backend OCR API
+      final response = await _callBackendOcrApi(text);
+
+      if (response['success'] == true && response['extractedData'] != null) {
+        final extractedData = response['extractedData'] as Map<String, dynamic>;
+
+        debugPrint('✅ AI OCR: Backend extraction successful!');
+        debugPrint('📊 Extracted data: $extractedData');
+        debugPrint('🔑 Fields found: ${extractedData.keys.toList()}');
+        debugPrint(
+            '📈 Fields extracted: ${response['fieldsExtracted']} fields');
+
+        return extractedData;
+      } else {
+        debugPrint('❌ AI OCR: Backend extraction failed');
+        throw Exception(
+            'Backend OCR extraction failed - no fallback available');
+      }
+    } catch (e) {
+      debugPrint('❌ AI OCR: Backend error: $e');
+      throw Exception('Backend OCR API error: $e');
+    }
+  }
+
+  /// Call the backend OCR API for AI-powered text analysis
+  static Future<Map<String, dynamic>> _callBackendOcrApi(String text) async {
+    // Backend URL - using deployed backend
+    const backendUrl = 'https://modelday-backend.vercel.app';
+
+    final url = Uri.parse('$backendUrl/api/ocr');
+
+    debugPrint('🌐 Calling backend OCR API: $url');
+
+    final response = await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({
+        'text': text,
+        'documentType': 'modeling_document',
+      }),
+    );
+
+    debugPrint('📡 Backend response status: ${response.statusCode}');
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      debugPrint(
+          '✅ Backend OCR successful: ${data['fieldsExtracted']} fields extracted');
+      return data;
+    } else {
+      debugPrint(
+          '❌ Backend OCR failed: ${response.statusCode} - ${response.body}');
+      throw Exception('Backend OCR API failed: ${response.statusCode}');
+    }
+  }
+
+  /// Parse extracted text into structured data for Options and Jobs (Local fallback)
   static Map<String, dynamic> parseTextForOptions(String text) {
     final Map<String, dynamic> extractedData = {};
     final lines = text
@@ -365,19 +483,105 @@ class OcrService {
         .where((line) => line.isNotEmpty)
         .toList();
 
-    debugPrint('Parsing text lines: $lines');
+    debugPrint('🔍 OCR Parsing text lines: $lines');
 
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i].toLowerCase();
       final originalLine = lines[i];
 
-      // Extract client name - look for "Client:" pattern first
-      if (line.contains('client:') && extractedData['clientName'] == null) {
-        final clientName = originalLine.split(':').length > 1
-            ? originalLine.split(':')[1].trim()
-            : null;
+      // === ENHANCED CLIENT NAME EXTRACTION ===
+      // Look for "Client" patterns (with and without colons) - prioritize this over Contact
+      if ((line.contains('client:') || line.contains('client ')) &&
+          extractedData['clientName'] == null) {
+        String? clientName;
+
+        if (line.contains('client:')) {
+          clientName = originalLine.split(':').length > 1
+              ? originalLine.split(':')[1].trim()
+              : null;
+        } else if (line.contains('client ')) {
+          // Handle "Client SAMSUNG" format
+          final clientIndex = line.indexOf('client ');
+          if (clientIndex != -1) {
+            clientName = originalLine.substring(clientIndex + 7).trim();
+          }
+        }
+
         if (clientName != null && clientName.isNotEmpty) {
           extractedData['clientName'] = clientName;
+          debugPrint('✅ OCR extracted client name: $clientName');
+        }
+      }
+
+      // Extract contact info separately (don't confuse with client name)
+      if (line.contains('contact:') && extractedData['contactInfo'] == null) {
+        final contactInfo = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (contactInfo != null && contactInfo.isNotEmpty) {
+          extractedData['contactInfo'] = contactInfo;
+          debugPrint('✅ OCR extracted contact info: $contactInfo');
+        }
+      }
+
+      // === ENHANCED TITLE EXTRACTION ===
+      // Look for "Title :" pattern (common in job briefs)
+      if (line.contains('title :') && extractedData['title'] == null) {
+        final titleStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (titleStr != null && titleStr.isNotEmpty) {
+          extractedData['title'] = titleStr;
+          extractedData['jobTitle'] = titleStr; // Also set as job title
+          debugPrint('✅ OCR extracted title: $titleStr');
+        }
+      }
+
+      // === ENHANCED BUDGET EXTRACTION ===
+      // Look for "Budget :" pattern
+      if (line.contains('budget :') && extractedData['budget'] == null) {
+        final budgetStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (budgetStr != null && budgetStr.isNotEmpty) {
+          extractedData['budget'] = budgetStr;
+          // Try to extract numeric value for dayRate
+          final budgetAmount = _extractRateFromString(budgetStr);
+          if (budgetAmount != null) {
+            extractedData['dayRate'] = budgetAmount.toString();
+          }
+          debugPrint('✅ OCR extracted budget: $budgetStr');
+        }
+      }
+
+      // === ENHANCED SHOOTING LOCATION EXTRACTION ===
+      // Look for "Shooting location :" pattern
+      if (line.contains('shooting location :') &&
+          extractedData['location'] == null) {
+        final locationStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (locationStr != null && locationStr.isNotEmpty) {
+          extractedData['location'] = locationStr;
+          debugPrint('✅ OCR extracted shooting location: $locationStr');
+        }
+      }
+
+      // === ENHANCED SHOOTING SCHEDULE EXTRACTION ===
+      // Look for "Shooting Schedule :" pattern
+      if (line.contains('shooting schedule :') &&
+          extractedData['shootingSchedule'] == null) {
+        final scheduleStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (scheduleStr != null && scheduleStr.isNotEmpty) {
+          extractedData['shootingSchedule'] = scheduleStr;
+          // Try to extract date information
+          String processedDate = _parseDate(scheduleStr);
+          if (processedDate != scheduleStr) {
+            extractedData['date'] = processedDate;
+          }
+          debugPrint('✅ OCR extracted shooting schedule: $scheduleStr');
         }
       }
 
@@ -441,13 +645,78 @@ class OcrService {
         }
       }
 
-      // Extract agent - look for "Agent:" pattern
-      if (line.contains('agent:') && extractedData['bookingAgent'] == null) {
-        final agentStr = originalLine.split(':').length > 1
-            ? originalLine.split(':')[1].trim()
-            : null;
+      // === ENHANCED AGENT EXTRACTION ===
+      // Look for "Agent" patterns (with and without colons)
+      if ((line.contains('agent:') || line.contains('agent ')) &&
+          extractedData['bookingAgent'] == null) {
+        String? agentStr;
+
+        if (line.contains('agent:')) {
+          agentStr = originalLine.split(':').length > 1
+              ? originalLine.split(':')[1].trim()
+              : null;
+        } else if (line.contains('agent ')) {
+          // Handle "Agent kubafrancyzk" format
+          final agentIndex = line.indexOf('agent ');
+          if (agentIndex != -1) {
+            agentStr = originalLine.substring(agentIndex + 6).trim();
+          }
+        }
+
         if (agentStr != null && agentStr.isNotEmpty) {
           extractedData['bookingAgent'] = agentStr;
+          debugPrint('✅ OCR extracted agent: $agentStr');
+        }
+      }
+
+      // === ENHANCED MEDIA TYPE EXTRACTION ===
+      // Look for "Media :" pattern
+      if (line.contains('media :') && extractedData['mediaType'] == null) {
+        final mediaStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (mediaStr != null && mediaStr.isNotEmpty) {
+          extractedData['mediaType'] = mediaStr;
+          debugPrint('✅ OCR extracted media type: $mediaStr');
+        }
+      }
+
+      // === ENHANCED USAGE PERIOD EXTRACTION ===
+      // Look for "Usage Period :" pattern
+      if (line.contains('usage period :') &&
+          extractedData['usagePeriod'] == null) {
+        final usageStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (usageStr != null && usageStr.isNotEmpty) {
+          extractedData['usagePeriod'] = usageStr;
+          debugPrint('✅ OCR extracted usage period: $usageStr');
+        }
+      }
+
+      // === ENHANCED RELEASE COUNTRY EXTRACTION ===
+      // Look for "Release country :" pattern
+      if (line.contains('release country :') &&
+          extractedData['releaseCountry'] == null) {
+        final countryStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (countryStr != null && countryStr.isNotEmpty) {
+          extractedData['releaseCountry'] = countryStr;
+          debugPrint('✅ OCR extracted release country: $countryStr');
+        }
+      }
+
+      // === ENHANCED EXCLUSIVITY EXTRACTION ===
+      // Look for "Exclusivity :" pattern
+      if (line.contains('exclusivity :') &&
+          extractedData['exclusivity'] == null) {
+        final exclusivityStr = originalLine.split(':').length > 1
+            ? originalLine.split(':')[1].trim()
+            : null;
+        if (exclusivityStr != null && exclusivityStr.isNotEmpty) {
+          extractedData['exclusivity'] = exclusivityStr;
+          debugPrint('✅ OCR extracted exclusivity: $exclusivityStr');
         }
       }
 
@@ -1114,49 +1383,116 @@ class OcrService {
 
       // === AGENCY-SPECIFIC FIELDS ===
 
-      // Extract agency name - look for "Agency Name:", "Agency:", "Company:", or "Organization:" pattern
-      if ((line.contains('agency name:') ||
-              (line.contains('agency:') && !line.contains('agency type:')) ||
-              (line.contains('company:') && !line.contains('company type:')) ||
-              line.contains('organization:')) &&
-          extractedData['agencyName'] == null) {
-        final colonIndex =
-            originalLine.toLowerCase().indexOf(line.contains('agency name:')
-                ? 'agency name:'
-                : line.contains('agency:')
-                    ? 'agency:'
-                    : line.contains('company:')
-                        ? 'company:'
-                        : 'organization:');
-        if (colonIndex != -1) {
-          final fieldLength = line.contains('agency name:')
-              ? 12
-              : line.contains('organization:')
-                  ? 13
-                  : line.contains('company:')
-                      ? 8
-                      : 7;
-          final agencyNameStr =
-              originalLine.substring(colonIndex + fieldLength).trim();
-          if (agencyNameStr.isNotEmpty) {
-            extractedData['agencyName'] = agencyNameStr;
-            extractedData['name'] = agencyNameStr; // Also set as general name
-            extractedData['company'] = agencyNameStr; // Also set as company
-            debugPrint('🏢 OCR extracted agency name: $agencyNameStr');
+      // Extract agency name - Enhanced pattern recognition
+      if (extractedData['agencyName'] == null) {
+        String? agencyNameStr;
+
+        // Primary patterns with colons - expanded list
+        final patterns = [
+          'agency name:',
+          'agency:',
+          'company name:',
+          'company:',
+          'organization:',
+          'business name:',
+          'firm name:',
+          'firm:',
+          'studio name:',
+          'studio:',
+          'brand name:',
+          'brand:',
+          'business:',
+          'enterprise:',
+          'group name:',
+          'group:',
+          'corporation:',
+          'corp:',
+          'inc:',
+          'ltd:',
+          'llc:'
+        ];
+
+        for (final pattern in patterns) {
+          if (line.contains(pattern) &&
+              (pattern != 'agency:' || !line.contains('agency type:')) &&
+              (pattern != 'company:' || !line.contains('company type:')) &&
+              agencyNameStr == null) {
+            final colonIndex = originalLine.toLowerCase().indexOf(pattern);
+            if (colonIndex != -1) {
+              agencyNameStr =
+                  originalLine.substring(colonIndex + pattern.length).trim();
+              if (agencyNameStr.isNotEmpty) {
+                debugPrint(
+                    '🏢 OCR extracted agency name with pattern "$pattern": $agencyNameStr');
+                break;
+              }
+            }
           }
+        }
+
+        // Fallback: Look for potential agency names in first few lines
+        if (agencyNameStr == null && i < 5) {
+          final cleanLine = originalLine.trim();
+          if (_isPotentialAgencyName(cleanLine)) {
+            agencyNameStr = cleanLine;
+            debugPrint(
+                '🏢 OCR extracted agency name from fallback: $agencyNameStr');
+          }
+        }
+
+        // Set the extracted agency name
+        if (agencyNameStr != null && agencyNameStr.isNotEmpty) {
+          extractedData['agencyName'] = agencyNameStr;
+          extractedData['name'] = agencyNameStr; // Also set as general name
+          extractedData['company'] = agencyNameStr; // Also set as company
         }
       }
 
-      // Extract agency type - look for "Agency Type:" or "Type:" pattern
-      if ((line.contains('agency type:') ||
-              (line.contains('type:') &&
-                  !line.contains('event type:') &&
-                  !line.contains('job type:') &&
-                  !line.contains('option type:'))) &&
-          extractedData['agencyType'] == null) {
-        final typeStr = originalLine.split(':').length > 1
-            ? originalLine.split(':')[1].trim().toLowerCase()
-            : null;
+      // Extract agency type - Enhanced pattern recognition
+      if (extractedData['agencyType'] == null) {
+        String? typeStr;
+
+        // Look for explicit type patterns
+        final typePatterns = [
+          'agency type:',
+          'type:',
+          'category:',
+          'classification:',
+          'kind:'
+        ];
+
+        for (final pattern in typePatterns) {
+          if (line.contains(pattern) &&
+              !line.contains('event type:') &&
+              !line.contains('job type:') &&
+              !line.contains('option type:') &&
+              typeStr == null) {
+            final parts = originalLine.split(':');
+            if (parts.length > 1) {
+              typeStr = parts[1].trim().toLowerCase();
+              if (typeStr.isNotEmpty) {
+                debugPrint(
+                    '🏢 OCR extracted agency type with pattern "$pattern": $typeStr');
+                break;
+              }
+            }
+          }
+        }
+
+        // Fallback: Look for common agency type keywords in the text
+        if (typeStr == null) {
+          if (line.contains('mother') || line.contains('parent')) {
+            typeStr = 'mother agency';
+            debugPrint('🏢 OCR detected mother agency type from keywords');
+          } else if (line.contains('representing') ||
+              line.contains('represent')) {
+            typeStr = 'representing';
+            debugPrint(
+                '🏢 OCR detected representing agency type from keywords');
+          }
+        }
+
+        // Set the extracted agency type
         if (typeStr != null && typeStr.isNotEmpty) {
           extractedData['agencyType'] = typeStr;
           extractedData['type'] = typeStr; // Also set as general type
@@ -1648,7 +1984,46 @@ class OcrService {
       }
     }
 
-    extractedData['notes'] = notesLines.join('\n').trim();
+    // Build comprehensive notes from extracted fields and remaining text
+    final notesBuilder = StringBuffer();
+
+    // Add contact info to notes if available
+    if (extractedData['contactInfo'] != null) {
+      notesBuilder.writeln('Contact: ${extractedData['contactInfo']}');
+    }
+
+    // Add job details to notes if available
+    if (extractedData['title'] != null) {
+      notesBuilder.writeln('Title: ${extractedData['title']}');
+    }
+    if (extractedData['mediaType'] != null) {
+      notesBuilder.writeln('Media: ${extractedData['mediaType']}');
+    }
+    if (extractedData['usagePeriod'] != null) {
+      notesBuilder.writeln('Usage Period: ${extractedData['usagePeriod']}');
+    }
+    if (extractedData['releaseCountry'] != null) {
+      notesBuilder
+          .writeln('Release Country: ${extractedData['releaseCountry']}');
+    }
+    if (extractedData['exclusivity'] != null) {
+      notesBuilder.writeln('Exclusivity: ${extractedData['exclusivity']}');
+    }
+    if (extractedData['shootingSchedule'] != null) {
+      notesBuilder
+          .writeln('Shooting Schedule: ${extractedData['shootingSchedule']}');
+    }
+    if (extractedData['budget'] != null) {
+      notesBuilder.writeln('Budget: ${extractedData['budget']}');
+    }
+
+    // Add any remaining notes
+    if (notesLines.isNotEmpty) {
+      if (notesBuilder.isNotEmpty) notesBuilder.writeln();
+      notesBuilder.write(notesLines.join('\n'));
+    }
+
+    extractedData['notes'] = notesBuilder.toString().trim();
 
     debugPrint('=== OCR PARSING COMPLETE ===');
     debugPrint('Final extracted data: $extractedData');
@@ -1680,6 +2055,29 @@ class OcrService {
 
   static bool _isDateOrTime(String line) {
     return _containsDatePattern(line) || _containsTimePattern(line);
+  }
+
+  /// Test method to verify OCR parsing with sample data
+  static Map<String, dynamic> testParsingWithSampleData() {
+    const sampleText = '''
+Client SAMSUNG
+Contact Adrien Gras | IMM BELGIUM
+Agent kubafrancyzk
+Info Job details :
+Title : Samsung Galaxy Book 5
+Media : All electronic, digital, All print, Online
+Usage Period : 1year
+Release country : Global
+Exclusivity : Non
+Shooting Schedule : 2nd week of May 2025
+Shooting location : TBC
+Budget : 6000 euros gross
+''';
+
+    debugPrint('🧪 Testing OCR parsing with sample data...');
+    final result = parseTextForOptions(sampleText);
+    debugPrint('🧪 Test result: $result');
+    return result;
   }
 
   /// Dispose resources

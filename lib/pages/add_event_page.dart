@@ -659,7 +659,7 @@ class _AddEventPageState extends State<AddEventPage> {
                   border: Border.all(color: const Color(0xFF2E2E2E)),
                 ),
                 child: DropdownButtonFormField<String>(
-                  value: _selectedEventType.isEmpty ||
+                  initialValue: _selectedEventType.isEmpty ||
                           !_eventTypes.any(
                               (type) => type['value'] == _selectedEventType)
                       ? null

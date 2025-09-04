@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:new_flutter/models/community_post.dart';
+import 'package:new_flutter/services/email_service.dart';
+import 'package:new_flutter/services/notification_service.dart';
 
 class CommunityService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -166,6 +168,23 @@ class CommunityService {
     }
   }
 
+  /// Get a single community post by its ID
+  static Future<CommunityPost> getPostById(String postId) async {
+    try {
+      final doc = await _firestore.collection(_collection).doc(postId).get();
+      if (!doc.exists) {
+        throw Exception('Post with ID $postId not found');
+      }
+      return CommunityPost.fromJson({
+        'id': doc.id,
+        ...doc.data()!,
+      });
+    } catch (e) {
+      debugPrint('Error getting post by ID: $e');
+      throw Exception('Failed to get post by ID: $e');
+    }
+  }
+
   /// Update a post (only by the author)
   static Future<void> updatePost(String postId, String content, {
     String? category,
@@ -277,6 +296,19 @@ class CommunityService {
       debugPrint('👤 User: ${user.uid} (${user.displayName ?? user.email})');
       debugPrint('💬 Content: $content');
 
+      // Get the post details first to get author information
+      final postDoc = await _firestore.collection(_collection).doc(postId).get();
+      if (!postDoc.exists) {
+        throw Exception('Post not found');
+      }
+
+      final postData = postDoc.data()!;
+      final postAuthorId = postData['authorId'] as String;
+      final postContent = postData['content'] as String;
+
+      // Extract post title (first line of content)
+      final postTitle = postContent.split('\n').first;
+
       final comment = {
         'postId': postId,
         'authorId': user.uid,
@@ -296,6 +328,50 @@ class CommunityService {
         'comments': FieldValue.increment(1),
       });
       debugPrint('📊 Post comment count incremented');
+
+      // Send email notification to post author (if not commenting on own post)
+      if (postAuthorId != user.uid) {
+        final postAuthorEmail = await EmailService.getUserEmail(postAuthorId);
+        if (postAuthorEmail != null) {
+          final commenterName = user.displayName ?? user.email?.split('@').first ?? 'Anonymous';
+
+          debugPrint('📧 Sending comment notification email to: $postAuthorEmail');
+          final emailSent = await EmailService.sendCommentNotificationCompat(
+            postAuthorEmail: postAuthorEmail,
+            postTitle: postTitle,
+            commenterName: commenterName,
+            commentContent: content,
+            postId: postId,
+          );
+
+          if (emailSent) {
+            debugPrint('✅ Comment notification email sent successfully');
+          } else {
+            debugPrint('⚠️ Comment notification email failed to send');
+          }
+        } else {
+          debugPrint('⚠️ Could not find email for post author: $postAuthorId');
+        }
+
+        // Create in-app notification for post author
+        try {
+          final commenterName = user.displayName ?? user.email?.split('@').first ?? 'Anonymous';
+          final notificationService = NotificationService();
+          await notificationService.createCommentNotification(
+            postOwnerId: postAuthorId,
+            postId: postId,
+            commentId: docRef.id,
+            commenterUserId: user.uid,
+            commenterName: commenterName,
+            postTitle: postTitle,
+          );
+          debugPrint('🔔 In-app notification created successfully');
+        } catch (notificationError) {
+          debugPrint('⚠️ Failed to create in-app notification: $notificationError');
+        }
+      } else {
+        debugPrint('ℹ️ User commented on own post, skipping notifications');
+      }
     } catch (e) {
       debugPrint('❌ Error adding comment: $e');
       throw Exception('Failed to add comment: $e');

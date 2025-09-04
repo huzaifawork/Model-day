@@ -65,6 +65,9 @@ import '../pages/new_on_stay_page.dart';
 import '../pages/new_test_page.dart';
 import '../pages/new_polaroid_page.dart';
 import '../pages/new_meeting_page.dart';
+import '../pages/terms_and_conditions_page.dart';
+import '../pages/email_test_page.dart';
+import '../pages/approvals_page.dart';
 
 /// Simple route manager to handle navigation without complex state management
 class SimpleRouteManager {
@@ -136,6 +139,12 @@ class SimpleRouteManager {
       // Calendar and Activities
       case '/calendar':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing calendar → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Calendar page (authenticated)');
           return const CalendarPage();
         } else {
@@ -146,6 +155,12 @@ class SimpleRouteManager {
 
       case '/all-activities':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing all-activities → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ All activities page (authenticated)');
           return const AllActivitiesPage();
         } else {
@@ -156,6 +171,12 @@ class SimpleRouteManager {
 
       case '/community-board':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing community-board → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Community board page (authenticated)');
           return const CommunityBoardPage();
         } else {
@@ -167,6 +188,12 @@ class SimpleRouteManager {
       // Job related pages
       case '/jobs':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing jobs → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Jobs page (authenticated)');
           return const JobsPageSimple();
         } else {
@@ -176,6 +203,12 @@ class SimpleRouteManager {
 
       case '/new-job':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-job → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New job page (authenticated)');
           Job? job;
           if (arguments is Job) {
@@ -204,6 +237,12 @@ class SimpleRouteManager {
       // AI Jobs
       case '/ai-jobs':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing ai-jobs → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ AI jobs page (authenticated)');
           return const AiJobsPage();
         } else {
@@ -214,6 +253,12 @@ class SimpleRouteManager {
 
       case '/new-ai-job':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-ai-job → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New AI job page (authenticated)');
           return const NewAiJobPage();
         } else {
@@ -225,6 +270,12 @@ class SimpleRouteManager {
       // Direct bookings and options
       case '/direct-bookings':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing direct-bookings → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Direct bookings page (authenticated)');
           return const EnhancedDirectBookingsPage();
         } else {
@@ -235,6 +286,12 @@ class SimpleRouteManager {
 
       case '/direct-options':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing direct-options → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Direct options page (authenticated)');
           return const DirectOptionsPage();
         } else {
@@ -245,6 +302,12 @@ class SimpleRouteManager {
 
       case '/options':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing options → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Options list page (authenticated)');
           return const OptionsListPage();
         } else {
@@ -255,6 +318,12 @@ class SimpleRouteManager {
 
       case '/new-option':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-option → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New option page (authenticated)');
           debugPrint('🔍 Route arguments: $arguments');
           debugPrint('🔍 Arguments type: ${arguments.runtimeType}');
@@ -293,6 +362,12 @@ class SimpleRouteManager {
 
       case '/other':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing other → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Other events page (authenticated)');
           return const OtherPage();
         } else {
@@ -304,6 +379,12 @@ class SimpleRouteManager {
       // Other event types
       case '/castings':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing castings → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Castings page (authenticated)');
           return const CastingsPage();
         } else {
@@ -314,6 +395,12 @@ class SimpleRouteManager {
 
       case '/tests':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing tests → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Tests page (authenticated)');
           return const TestsPage();
         } else {
@@ -323,6 +410,12 @@ class SimpleRouteManager {
 
       case '/on-stay':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing on-stay → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ On stay page (authenticated)');
           return const OnStayPage();
         } else {
@@ -333,6 +426,12 @@ class SimpleRouteManager {
 
       case '/shootings':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing shootings → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Shootings page (authenticated)');
           return const ShootingsPage();
         } else {
@@ -343,6 +442,12 @@ class SimpleRouteManager {
 
       case '/polaroids':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing polaroids → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Polaroids page (authenticated)');
           return const PolaroidsPage();
         } else {
@@ -353,6 +458,12 @@ class SimpleRouteManager {
 
       case '/new-polaroid':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-polaroid → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New polaroid page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is String) {
@@ -382,6 +493,12 @@ class SimpleRouteManager {
 
       case '/meetings':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing meetings → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Meetings page (authenticated)');
           return const MeetingsPage();
         } else {
@@ -392,6 +509,12 @@ class SimpleRouteManager {
 
       case '/new-meeting':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-meeting → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New meeting page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Meeting) {
@@ -425,6 +548,12 @@ class SimpleRouteManager {
 
       case '/new-casting':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-casting → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New casting page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Casting) {
@@ -448,6 +577,12 @@ class SimpleRouteManager {
 
       case '/new-test':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-test → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New test page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Test) {
@@ -473,6 +608,12 @@ class SimpleRouteManager {
 
       case '/new-on-stay':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-on-stay → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New on stay page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Map<String, dynamic>) {
@@ -494,6 +635,12 @@ class SimpleRouteManager {
 
       case '/new-shooting':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-shooting → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New shooting page (authenticated)');
           return NewEventPage(eventType: EventType.polaroids);
         } else {
@@ -504,6 +651,12 @@ class SimpleRouteManager {
 
       case '/new-direct-booking':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-direct-booking → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New direct booking page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Map<String, dynamic>) {
@@ -526,6 +679,12 @@ class SimpleRouteManager {
 
       case '/edit-direct-booking':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing edit-direct-booking → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Edit direct booking page (authenticated)');
           return const EditDirectBookingPage();
         } else {
@@ -536,6 +695,12 @@ class SimpleRouteManager {
 
       case '/new-direct-option':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-direct-option → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New direct option page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Map<String, dynamic>) {
@@ -568,6 +733,12 @@ class SimpleRouteManager {
 
       case '/models':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing models → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Models page (authenticated)');
           return const ModelsPage();
         } else {
@@ -578,6 +749,12 @@ class SimpleRouteManager {
 
       case '/new-model':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-model → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New model page (authenticated)');
           return const NewModelPage();
         } else {
@@ -589,6 +766,12 @@ class SimpleRouteManager {
       // Management pages
       case '/agencies':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing agencies → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Agencies page (authenticated)');
           return const AgenciesPage();
         } else {
@@ -599,6 +782,12 @@ class SimpleRouteManager {
 
       case '/new-agency':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-agency → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New agency page (authenticated)');
           return const NewAgencyPage();
         } else {
@@ -609,6 +798,12 @@ class SimpleRouteManager {
 
       case '/agents':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing agents → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Agents page (authenticated)');
           return const AgentsPage();
         } else {
@@ -619,6 +814,12 @@ class SimpleRouteManager {
 
       case '/new-agent':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-agent → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New agent page (authenticated)');
           return const NewAgentPage();
         } else {
@@ -629,6 +830,12 @@ class SimpleRouteManager {
 
       case '/industry-contacts':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing industry-contacts → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Industry contacts page (authenticated)');
           return const IndustryContactsPage();
         } else {
@@ -639,6 +846,12 @@ class SimpleRouteManager {
 
       case '/new-industry-contact':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-industry-contact → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New industry contact page (authenticated)');
           return const NewIndustryContactPage();
         } else {
@@ -650,6 +863,12 @@ class SimpleRouteManager {
       // User pages
       case '/profile':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing profile → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Profile page (authenticated)');
           return const ProfilePage();
         } else {
@@ -660,6 +879,12 @@ class SimpleRouteManager {
 
       case '/support':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing support → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Support page (authenticated)');
           return const SupportPage();
         } else {
@@ -668,9 +893,46 @@ class SimpleRouteManager {
           return const SignInPage();
         }
 
+      case '/approvals':
+        if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing approvals → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
+          debugPrint('➡️ Approvals page (authenticated)');
+          return const ApprovalsPage();
+        } else {
+          debugPrint(
+              '➡️ Approvals page requested but not authenticated → sign-in');
+          return const SignInPage();
+        }
+
+      case '/email-test':
+        if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing email-test → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
+          debugPrint('➡️ Email test page (authenticated)');
+          return const EmailTestPage();
+        } else {
+          debugPrint('❌ Email test page requires authentication');
+          return const SignInPage();
+        }
+
       // Gallery and other features
       case '/job-gallery':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing job-gallery → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Job gallery page (authenticated)');
           return const JobGalleryPage();
         } else {
@@ -681,6 +943,12 @@ class SimpleRouteManager {
 
       case '/new-job-gallery':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-job-gallery → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New job gallery page (authenticated)');
           return const NewJobGalleryPage();
         } else {
@@ -691,6 +959,12 @@ class SimpleRouteManager {
 
       case '/ai-chat':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing ai-chat → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ AI chat page (authenticated)');
           return const AIChatPage();
         } else {
@@ -701,6 +975,12 @@ class SimpleRouteManager {
 
       case '/submit-event':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing submit-event → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Submit event page (authenticated)');
           return const SubmitEventPage();
         } else {
@@ -718,6 +998,10 @@ class SimpleRouteManager {
         debugPrint('➡️ Register page');
         return const RegisterPage();
 
+      case '/terms-and-conditions':
+        debugPrint('➡️ Terms and Conditions page');
+        return const TermsAndConditionsPage();
+
       case '/auth/callback':
         debugPrint('➡️ OAuth callback page');
         return const OAuthCallbackPage();
@@ -733,6 +1017,12 @@ class SimpleRouteManager {
       // Event creation pages
       case '/add-event':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing add-event → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ Add event page (authenticated)');
           return const AddEventPage();
         } else {
@@ -743,6 +1033,12 @@ class SimpleRouteManager {
 
       case '/new-event':
         if (isAuthenticated) {
+          // If admin tries to access user routes, redirect to admin dashboard
+          if (isAdminAuthenticated) {
+            debugPrint(
+                '➡️ Admin accessing new-event → redirect to admin dashboard');
+            return const AdminDashboardPage();
+          }
           debugPrint('➡️ New event page (authenticated)');
           // Handle edit mode with arguments
           if (arguments is Map<String, dynamic>) {

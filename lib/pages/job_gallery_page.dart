@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:new_flutter/services/job_gallery_service.dart';
 import 'package:new_flutter/models/job_gallery.dart';
 import 'package:new_flutter/widgets/app_layout.dart';
+import 'package:new_flutter/widgets/clickable_contact_info.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/widgets/base64_image_widget.dart';
 
@@ -185,7 +186,7 @@ class _JobGalleryPageState extends State<JobGalleryPage> {
             crossAxisCount: crossAxisCount,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 0.75,
+            childAspectRatio: 0.85, // Adjusted for compact cards
           ),
           itemCount: filteredGalleries.length,
           itemBuilder: (context, index) {
@@ -246,125 +247,127 @@ class _JobGalleryPageState extends State<JobGalleryPage> {
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            // Image Preview
-            Expanded(
-              flex: 3,
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(16)),
-                  color: Colors.grey[800],
-                ),
-                child: imageUrls.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(16)),
-                        child: _buildImageWidget(imageUrls.first),
-                      )
-                    : Container(
-                        color: Colors.grey[800],
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.photo_library_outlined,
-                              color: Colors.grey[600],
-                              size: 32,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image Preview - Compact thumbnail
+                Expanded(
+                  flex: 2, // Compact ratio for image
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(16)),
+                      color: Colors.grey[800],
+                    ),
+                    child: imageUrls.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(16)),
+                            child: _buildImageWidget(imageUrls.first),
+                          )
+                        : Container(
+                            color: Colors.grey[800],
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.photo_library_outlined,
+                                  color: Colors.grey[600],
+                                  size: 24, // Smaller icon for compact view
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'No Images',
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 10, // Smaller text
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No Images',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 12,
+                          ),
+                  ),
+                ),
+
+                // Gallery Info - Compact
+                Expanded(
+                  flex: 1, // Compact ratio for info
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          gallery.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (gallery.photographerName != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'by ${gallery.photographerName}',
+                            style: const TextStyle(
+                              color: AppTheme.goldColor,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        if (gallery.location != null) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.location_on,
+                                color: Colors.grey[400],
+                                size: 12,
                               ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: ClickableContactInfo(
+                                  text: gallery.location!,
+                                  type: ContactType.location,
+                                  showIcon: false,
+                                  textColor: Colors.blue[400],
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const Spacer(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            if (imageUrls.isNotEmpty)
+                              Text(
+                                '${imageUrls.length} photo${imageUrls.length != 1 ? 's' : ''}',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 11,
+                                ),
+                              ),
+                            Icon(
+                              Icons.arrow_forward_ios,
+                              color: Colors.grey[500],
+                              size: 12,
                             ),
                           ],
                         ),
-                      ),
-              ),
-            ),
-
-            // Gallery Info
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      gallery.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (gallery.photographerName != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'by ${gallery.photographerName}',
-                        style: const TextStyle(
-                          color: AppTheme.goldColor,
-                          fontSize: 12,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    if (gallery.location != null) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            color: Colors.grey[400],
-                            size: 12,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              gallery.location!,
-                              style: TextStyle(
-                                color: Colors.grey[400],
-                                fontSize: 11,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    const Spacer(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        if (imageUrls.isNotEmpty)
-                          Text(
-                            '${imageUrls.length} photo${imageUrls.length != 1 ? 's' : ''}',
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 11,
-                            ),
-                          ),
-                        Icon(
-                          Icons.arrow_forward_ios,
-                          color: Colors.grey[500],
-                          size: 12,
-                        ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
 
             // Action buttons
@@ -429,11 +432,32 @@ class _JobGalleryPageState extends State<JobGalleryPage> {
 
     // Check if it's a valid HTTP/HTTPS URL
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      // Use Base64 image widget to bypass CORS issues
-      return Base64ImageWidget(
-        imageUrl: imageUrl,
-        fit: BoxFit.cover,
-        placeholder: Container(
+      // Try multiple image loading strategies for better compatibility
+      return _buildNetworkImageWithFallback(imageUrl);
+    } else {
+      // For local file paths or invalid URLs, show placeholder
+      debugPrint('⚠️ Invalid image URL format: $imageUrl');
+      return _buildPlaceholderWidget();
+    }
+  }
+
+  Widget _buildNetworkImageWithFallback(String imageUrl) {
+    // Transform Firebase Storage URL for better web compatibility
+    String processedUrl = _processFirebaseStorageUrl(imageUrl);
+
+    return Image.network(
+      processedUrl,
+      fit: BoxFit.cover,
+      headers: const {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) {
+          return child;
+        }
+        return Container(
           color: Colors.grey[800],
           child: const Center(
             child: CircularProgressIndicator(
@@ -441,21 +465,68 @@ class _JobGalleryPageState extends State<JobGalleryPage> {
               strokeWidth: 2,
             ),
           ),
-        ),
-        errorWidget: Container(
-          color: Colors.grey[800],
-          child: const Icon(
-            Icons.broken_image,
-            color: Colors.grey,
-            size: 40,
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        debugPrint('❌ Network image failed for URL: $imageUrl');
+        debugPrint('❌ Error details: $error');
+        debugPrint('❌ Stack trace: $stackTrace');
+
+        // Fallback to Base64ImageWidget for CORS issues
+        return Base64ImageWidget(
+          imageUrl: imageUrl,
+          fit: BoxFit.cover,
+          placeholder: Container(
+            color: Colors.grey[800],
+            child: const Center(
+              child: CircularProgressIndicator(
+                color: AppTheme.goldColor,
+                strokeWidth: 2,
+              ),
+            ),
           ),
-        ),
-      );
-    } else {
-      // For local file paths or invalid URLs, show placeholder
-      debugPrint('⚠️ Invalid image URL format: $imageUrl');
-      return _buildPlaceholderWidget();
+          errorWidget: Container(
+            color: Colors.grey[800],
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.broken_image,
+                  color: Colors.grey,
+                  size: 40,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Image Load Failed',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _processFirebaseStorageUrl(String imageUrl) {
+    // If it's a Firebase Storage URL, add token parameter for web access
+    if (imageUrl.contains('firebasestorage.googleapis.com')) {
+      debugPrint(
+          '🔄 Processing Firebase Storage URL: ${imageUrl.substring(0, 100)}...');
+
+      // Add alt=media parameter if not present for direct media access
+      if (!imageUrl.contains('alt=media')) {
+        String separator = imageUrl.contains('?') ? '&' : '?';
+        imageUrl = '$imageUrl${separator}alt=media';
+      }
+
+      debugPrint('🔄 Processed URL: ${imageUrl.substring(0, 100)}...');
     }
+
+    return imageUrl;
   }
 
   Widget _buildPlaceholderWidget() {
@@ -483,33 +554,136 @@ class _JobGalleryPageState extends State<JobGalleryPage> {
   }
 
   void _showGalleryDetails(JobGallery gallery) {
+    // Parse images for display
+    List<String> imageUrls = [];
+    if (gallery.images != null && gallery.images!.isNotEmpty) {
+      try {
+        final String imagesStr = gallery.images!;
+        if (imagesStr.contains(',')) {
+          imageUrls = imagesStr
+              .split(',')
+              .map((url) => url.trim())
+              .where((url) => url.isNotEmpty)
+              .toList();
+        } else if (imagesStr.isNotEmpty) {
+          imageUrls = [imagesStr];
+        }
+      } catch (e) {
+        debugPrint('Error parsing images: $e');
+      }
+    }
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(gallery.name),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (gallery.photographerName != null) ...[
-                  Text('Photographer: ${gallery.photographerName}'),
-                  const SizedBox(height: 8),
+          title: Text(gallery.name,
+              style:
+                  const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          content: Container(
+            width: double.maxFinite,
+            constraints: const BoxConstraints(maxHeight: 500),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Photographer
+                  if (gallery.photographerName != null &&
+                      gallery.photographerName!.isNotEmpty) ...[
+                    _buildDetailRow('Photographer:', gallery.photographerName!),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Location
+                  if (gallery.location != null &&
+                      gallery.location!.isNotEmpty) ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Location: ',
+                            style: TextStyle(fontWeight: FontWeight.w500)),
+                        Expanded(
+                          child: ClickableContactInfo(
+                            text: gallery.location!,
+                            type: ContactType.location,
+                            showIcon: false,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Hair & Makeup
+                  if (gallery.hairMakeup != null &&
+                      gallery.hairMakeup!.isNotEmpty) ...[
+                    _buildDetailRow('Hair & Makeup:', gallery.hairMakeup!),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Stylist
+                  if (gallery.stylist != null &&
+                      gallery.stylist!.isNotEmpty) ...[
+                    _buildDetailRow('Stylist:', gallery.stylist!),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Date
+                  if (gallery.date != null) ...[
+                    _buildDetailRow(
+                        'Date:', gallery.date!.toIso8601String().split('T')[0]),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Description
+                  if (gallery.description != null &&
+                      gallery.description!.isNotEmpty) ...[
+                    _buildDetailRow('Description:', gallery.description!),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Images count and gallery
+                  if (imageUrls.isNotEmpty) ...[
+                    _buildDetailRow('Images:',
+                        '${imageUrls.length} image${imageUrls.length > 1 ? 's' : ''}'),
+                    const SizedBox(height: 12),
+
+                    // Image gallery grid
+                    SizedBox(
+                      height: 200, // Fixed height for image preview
+                      child: GridView.builder(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                          childAspectRatio: 1,
+                        ),
+                        itemCount: imageUrls.length,
+                        itemBuilder: (context, index) {
+                          return GestureDetector(
+                            onTap: () =>
+                                _showFullScreenImage(context, imageUrls[index]),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: Colors.grey[800],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: _buildImageWidget(imageUrls[index]),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                 ],
-                if (gallery.location != null) ...[
-                  Text('Location: ${gallery.location}'),
-                  const SizedBox(height: 8),
-                ],
-                if (gallery.description != null) ...[
-                  Text('Description: ${gallery.description}'),
-                  const SizedBox(height: 8),
-                ],
-                if (gallery.date != null) ...[
-                  Text('Date: ${gallery.date}'),
-                  const SizedBox(height: 8),
-                ],
-              ],
+              ),
             ),
           ),
           actions: [
@@ -525,6 +699,52 @@ class _JobGalleryPageState extends State<JobGalleryPage> {
               child: const Text('Edit'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showFullScreenImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.black,
+          child: Stack(
+            children: [
+              Center(
+                child: _buildImageWidget(imageUrl),
+              ),
+              Positioned(
+                top: 16,
+                right: 16,
+                child: IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );

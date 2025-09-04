@@ -379,7 +379,7 @@ class _NewModelPageState extends State<NewModelPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedGender.isNotEmpty && _genderOptions.contains(_selectedGender)
+            initialValue: _selectedGender.isNotEmpty && _genderOptions.contains(_selectedGender)
                 ? _selectedGender
                 : null,
             decoration: const InputDecoration(
@@ -433,7 +433,7 @@ class _NewModelPageState extends State<NewModelPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedEthnicity.isNotEmpty && _ethnicityOptions.contains(_selectedEthnicity) ? _selectedEthnicity : null,
+            initialValue: _selectedEthnicity.isNotEmpty && _ethnicityOptions.contains(_selectedEthnicity) ? _selectedEthnicity : null,
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding:

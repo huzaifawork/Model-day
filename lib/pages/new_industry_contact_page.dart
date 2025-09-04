@@ -270,6 +270,55 @@ class _NewIndustryContactPageState extends State<NewIndustryContactPage> {
     });
 
     debugPrint('🏭 Industry contact form populated with OCR data');
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(data);
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+    
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
   }
 
   Future<void> _handleSubmit() async {
@@ -369,11 +418,12 @@ class _NewIndustryContactPageState extends State<NewIndustryContactPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint(
-                        'Auto-submitting industry contact form after OCR...');
-                    _handleSubmit();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint(
+                  //       'Auto-submitting industry contact form after OCR...');
+                  //   _handleSubmit();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -577,7 +627,7 @@ class _NewIndustryContactPageState extends State<NewIndustryContactPage> {
               border: Border.all(color: const Color(0xFF2E2E2E)),
             ),
             child: DropdownButtonFormField<String>(
-              value: _selectedJobTitle.isNotEmpty &&
+              initialValue: _selectedJobTitle.isNotEmpty &&
                       _jobTitles.contains(_selectedJobTitle)
                   ? _selectedJobTitle
                   : null,

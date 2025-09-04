@@ -6,8 +6,10 @@ import 'package:new_flutter/widgets/ui/form_navigation_helper.dart';
 import 'package:new_flutter/widgets/ocr_upload_widget.dart';
 
 import 'package:new_flutter/services/agencies_service.dart';
+import 'package:new_flutter/providers/agencies_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:new_flutter/services/file_upload_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class NewAgencyPage extends StatefulWidget {
   const NewAgencyPage({super.key});
@@ -28,6 +30,11 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
 
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
+
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
 
   // Contract fields
   final _contractSignedController = TextEditingController();
@@ -57,9 +64,16 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
   // Document files
   final List<PlatformFile> _documentFiles = [];
 
+  // Existing contract URL when editing
+  String? _existingContractUrl;
+
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for all text fields (13 total)
+    _manualFocusNodes = List.generate(13, (index) => FocusNode());
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args != null && args is String) {
@@ -99,6 +113,12 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
             _contractExpired = agency.contractExpired;
             _contractExpiredController.text =
                 '${agency.contractExpired!.day}/${agency.contractExpired!.month}/${agency.contractExpired!.year}';
+          }
+
+          // Load existing contract document if available
+          if (agency.contract != null && agency.contract!.isNotEmpty) {
+            _existingContractUrl = agency.contract;
+            debugPrint('Existing contract found: ${agency.contract}');
           }
 
           // Main Booker
@@ -149,6 +169,13 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
     _financePhoneController.dispose();
     _contractSignedController.dispose();
     _contractExpiredController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
@@ -333,6 +360,54 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
     });
 
     debugPrint('🏢 Agency form populated with OCR data');
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(data);
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
   }
 
   Future<void> _handleSubmit() async {
@@ -404,17 +479,30 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
           'email': _financeEmailController.text,
           'phone': _financePhoneController.text,
         },
+        'contract': _existingContractUrl ??
+            (documentUrls.isNotEmpty ? documentUrls.first : null),
         'documents': documentUrls.isNotEmpty ? documentUrls : null,
       };
 
       if (_isEditing && _editingId != null) {
         await AgenciesService.update(_editingId!, agencyData);
+        if (mounted) {
+          Navigator.pop(context, _editingId);
+        }
       } else {
-        await AgenciesService.create(agencyData);
-      }
-
-      if (mounted) {
-        Navigator.pop(context, true);
+        final createdAgencyId = await AgenciesProvider().createAgency(agencyData);
+        if (mounted) {
+          if (createdAgencyId != null) {
+            Navigator.pop(context, createdAgencyId);
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to create agency'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -461,10 +549,11 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting agency form after OCR...');
-                    _handleSubmit();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting agency form after OCR...');
+                  //   _handleSubmit();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -473,9 +562,13 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
               _buildSectionCard(
                 'Basic Information',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Agency Name',
+                  TextFormField(
                     controller: _nameController,
+                    focusNode: _manualFocusNodes[0], // Agency Name
+                    decoration: const InputDecoration(
+                      labelText: 'Agency Name',
+                      border: OutlineInputBorder(),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter agency name';
@@ -486,30 +579,47 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
                   const SizedBox(height: 16),
                   _buildTypeField(),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Website',
+                  TextFormField(
                     controller: _websiteController,
+                    focusNode: _manualFocusNodes[
+                        1], // Website (index 2 in field sequence, but focus node 1)
                     keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Website',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Address',
+                  TextFormField(
                     controller: _addressController,
+                    focusNode: _manualFocusNodes[2], // Address
+                    decoration: const InputDecoration(
+                      labelText: 'Address',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
-                        child: _formNavigation.createInputField(
-                          label: 'City',
+                        child: TextFormField(
                           controller: _cityController,
+                          focusNode: _manualFocusNodes[3], // City
+                          decoration: const InputDecoration(
+                            labelText: 'City',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 16),
                       Expanded(
-                        child: _formNavigation.createInputField(
-                          label: 'Country',
+                        child: TextFormField(
                           controller: _countryController,
+                          focusNode: _manualFocusNodes[4], // Country
+                          decoration: const InputDecoration(
+                            labelText: 'Country',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                       ),
                     ],
@@ -518,10 +628,14 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
                   Row(
                     children: [
                       Expanded(
-                        child: _formNavigation.createInputField(
-                          label: 'Commission Rate (%)',
+                        child: TextFormField(
                           controller: _commissionRateController,
+                          focusNode: _manualFocusNodes[5], // Commission Rate
                           keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Commission Rate (%)',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -538,9 +652,13 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
               _buildSectionCard(
                 'Main Booker',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Name',
+                  TextFormField(
                     controller: _mainBookerNameController,
+                    focusNode: _manualFocusNodes[6], // Main Booker Name
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      border: OutlineInputBorder(),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter main booker name';
@@ -549,10 +667,14 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Email',
+                  TextFormField(
                     controller: _mainBookerEmailController,
+                    focusNode: _manualFocusNodes[7], // Main Booker Email
                     keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      border: OutlineInputBorder(),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter main booker email';
@@ -564,10 +686,14 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Phone',
+                  TextFormField(
                     controller: _mainBookerPhoneController,
+                    focusNode: _manualFocusNodes[8], // Main Booker Phone
                     keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -577,21 +703,33 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
               _buildSectionCard(
                 'Finance Contact',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Name',
+                  TextFormField(
                     controller: _financeNameController,
+                    focusNode: _manualFocusNodes[9], // Finance Name
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Email',
+                  TextFormField(
                     controller: _financeEmailController,
+                    focusNode: _manualFocusNodes[10], // Finance Email
                     keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Phone',
+                  TextFormField(
                     controller: _financePhoneController,
+                    focusNode: _manualFocusNodes[11], // Finance Phone
                     keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -684,6 +822,55 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
                     ],
                   ),
 
+                  // Show existing contract if editing
+                  if (_isEditing && _existingContractUrl != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.green[600]!),
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.green[900]!.withValues(alpha: 0.2),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.check_circle,
+                                  color: Colors.green[400]),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Existing Contract Document',
+                                  style: TextStyle(
+                                    color: Colors.green[400],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => _viewExistingContract(),
+                                icon: Icon(Icons.visibility,
+                                    color: Colors.blue[400]),
+                                tooltip: 'View Contract',
+                              ),
+                              IconButton(
+                                onPressed: () => _removeExistingContract(),
+                                icon:
+                                    Icon(Icons.delete, color: Colors.red[400]),
+                                tooltip: 'Remove Contract',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Display the actual document content
+                          _buildDocumentPreview(_existingContractUrl!),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   // Display selected document files
                   if (_documentFiles.isNotEmpty) ...[
                     const SizedBox(height: 16),
@@ -728,10 +915,14 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
               _buildSectionCard(
                 'Notes',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Notes',
+                  TextFormField(
                     controller: _notesController,
+                    focusNode: _manualFocusNodes[12], // Notes
                     maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -812,7 +1003,7 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedStatus,
+            initialValue: _selectedStatus,
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding:
@@ -860,7 +1051,7 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _selectedType,
+            initialValue: _selectedType,
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding:
@@ -900,6 +1091,10 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
       if (result != null && result.files.isNotEmpty) {
         setState(() {
           _documentFiles.addAll(result.files);
+          // If we're editing and adding new documents, clear the existing contract
+          if (_isEditing && _existingContractUrl != null) {
+            _existingContractUrl = null;
+          }
         });
       }
     } catch (e) {
@@ -918,5 +1113,50 @@ class _NewAgencyPageState extends State<NewAgencyPage> {
     setState(() {
       _documentFiles.removeAt(index);
     });
+  }
+
+  void _viewExistingContract() {
+    if (_existingContractUrl != null) {
+      // Open the existing contract URL
+      launchUrl(
+        Uri.parse(_existingContractUrl!),
+        mode: LaunchMode.externalApplication,
+      );
+    }
+  }
+
+  void _removeExistingContract() {
+    setState(() {
+      _existingContractUrl = null;
+    });
+  }
+
+  Widget _buildDocumentPreview(String documentUrl) {
+    // Extract just the filename from the URL
+    final fileName = documentUrl.split('/').last.split('?').first;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[600]!),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.description, color: Colors.white70, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              fileName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

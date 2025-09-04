@@ -2,8 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import 'oauth_config_service.dart';
+import 'token_storage_service.dart';
+import 'manual_oauth_service.dart';
+import 'firebase_auth_storage_service.dart';
 
 class GoogleCalendarService {
   static calendar.CalendarApi? _calendarApi;
@@ -49,8 +53,37 @@ class GoogleCalendarService {
         debugPrint('🔐 Current user: ${account?.email ?? 'null'}');
       }
 
-      // If still no account, check if we can request additional scopes without full sign-in
+      // If still no account, try token refresh before full re-authentication
       if (account == null) {
+        debugPrint('🔄 Attempting token refresh before re-authentication...');
+        final tokenRefreshed = await _attemptTokenRefresh();
+
+        if (tokenRefreshed) {
+          // Try silent sign-in again after token refresh
+          try {
+            account = await _googleSignIn!.signInSilently().timeout(
+                  const Duration(seconds: 10),
+                  onTimeout: () => null,
+                );
+            debugPrint(
+                '🔐 Silent sign-in after token refresh: ${account?.email ?? 'null'}');
+          } catch (e) {
+            debugPrint('❌ Silent sign-in after token refresh failed: $e');
+          }
+        }
+      }
+
+      // If still no account after token refresh, check token expiration before re-authentication
+      if (account == null) {
+        final isTokenExpired = await _checkTokenExpiration();
+
+        if (isTokenExpired) {
+          debugPrint('⚠️ Token is expired - re-authentication required');
+        } else {
+          debugPrint(
+              'ℹ️ Token appears valid but authentication failed - re-authentication required');
+        }
+
         debugPrint('🔐 No existing Google account, attempting sign in...');
         try {
           // Try to request additional scopes for existing user with longer timeout
@@ -159,9 +192,10 @@ class GoogleCalendarService {
     try {
       debugPrint('📅 Creating Google Calendar event: ${event.title}');
 
-      // Ensure API is initialized
-      if (!await initialize()) {
-        debugPrint('❌ Failed to initialize Google Calendar API');
+      // Ensure valid authentication before proceeding
+      if (!await _ensureValidAuthentication()) {
+        debugPrint(
+            '❌ Failed to ensure valid authentication for Google Calendar API');
         return null;
       }
 
@@ -243,9 +277,10 @@ class GoogleCalendarService {
     try {
       debugPrint('📅 Updating Google Calendar event: $eventId');
 
-      // Ensure API is initialized
-      if (!await initialize()) {
-        debugPrint('❌ Failed to initialize Google Calendar API');
+      // Ensure valid authentication before proceeding
+      if (!await _ensureValidAuthentication()) {
+        debugPrint(
+            '❌ Failed to ensure valid authentication for Google Calendar API');
         return false;
       }
 
@@ -317,9 +352,10 @@ class GoogleCalendarService {
     try {
       debugPrint('📅 Deleting Google Calendar event: $eventId');
 
-      // Ensure API is initialized
-      if (!await initialize()) {
-        debugPrint('❌ Failed to initialize Google Calendar API');
+      // Ensure valid authentication before proceeding
+      if (!await _ensureValidAuthentication()) {
+        debugPrint(
+            '❌ Failed to ensure valid authentication for Google Calendar API');
         return false;
       }
 
@@ -500,6 +536,100 @@ class GoogleCalendarService {
       return true;
     } catch (e) {
       debugPrint('❌ Calendar access test failed: $e');
+      return false;
+    }
+  }
+
+  /// Attempt to refresh tokens using existing refresh token
+  static Future<bool> _attemptTokenRefresh() async {
+    try {
+      debugPrint('🔄 Attempting token refresh...');
+
+      // Check if we have stored tokens
+      final refreshToken = await TokenStorageService.getRefreshToken();
+      if (refreshToken == null) {
+        debugPrint('❌ No refresh token available');
+        return false;
+      }
+
+      debugPrint('✅ Refresh token found, attempting refresh...');
+
+      // Use existing ManualOAuthService to refresh token
+      final newTokens = await ManualOAuthService.refreshToken(refreshToken);
+      if (newTokens == null) {
+        debugPrint('❌ Token refresh failed');
+        return false;
+      }
+
+      debugPrint('✅ Token refresh successful');
+
+      // Update stored tokens
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('current_user_id');
+      if (userId != null) {
+        final storageService = FirebaseAuthStorageService();
+        await storageService.updateUserTokens(userId, newTokens);
+        debugPrint('✅ Updated stored tokens');
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('❌ Token refresh error: $e');
+      return false;
+    }
+  }
+
+  /// Check if current tokens are expired
+  static Future<bool> _checkTokenExpiration() async {
+    try {
+      debugPrint('🔍 Checking token expiration...');
+
+      // Use existing TokenStorageService to check expiration
+      final isExpired = await TokenStorageService.isTokenExpired();
+
+      if (isExpired) {
+        debugPrint('⚠️ Token is expired');
+      } else {
+        debugPrint('✅ Token is still valid');
+      }
+
+      return isExpired;
+    } catch (e) {
+      debugPrint('❌ Error checking token expiration: $e');
+      // Assume expired on error to be safe
+      return true;
+    }
+  }
+
+  /// Ensure valid authentication before calendar operations
+  static Future<bool> _ensureValidAuthentication() async {
+    try {
+      debugPrint('🔍 Ensuring valid authentication for calendar operation...');
+
+      // Check if already initialized and tokens are valid
+      if (_isInitialized && _calendarApi != null) {
+        final isExpired = await _checkTokenExpiration();
+        if (!isExpired) {
+          debugPrint('✅ Authentication is valid, proceeding with operation');
+          return true;
+        }
+
+        debugPrint('⚠️ Token expired, attempting refresh...');
+        final refreshed = await _attemptTokenRefresh();
+        if (refreshed) {
+          debugPrint('✅ Token refreshed successfully');
+          return true;
+        }
+
+        debugPrint('❌ Token refresh failed, re-initialization required');
+        resetInitialization();
+      }
+
+      // Initialize if not already done or if refresh failed
+      debugPrint('🔄 Initializing Google Calendar service...');
+      return await initialize();
+    } catch (e) {
+      debugPrint('❌ Error ensuring valid authentication: $e');
       return false;
     }
   }

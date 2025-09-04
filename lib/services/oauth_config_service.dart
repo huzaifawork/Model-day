@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class OAuthConfigService {
-  // Google OAuth Client IDs - Fully enabled with actual credentials - Fresh Build v4
+  // Google OAuth Client IDs - Fully enabled with actual credentials - Fresh Build v5 - Hardcoded URLs - 2025-01-30
   static const String _webClientId =
       '373125623062-6tlqmnc91u973gtdivp9urfilorekb3e.apps.googleusercontent.com';
   static const String _androidClientId =
@@ -22,12 +22,18 @@ class OAuthConfigService {
   static const String userInfoEndpoint =
       'https://www.googleapis.com/oauth2/v2/userinfo';
 
-  // Redirect URIs - Fully dynamic based on current URL
+  // Redirect URIs - Hardcoded for deployment stability
   static String getWebRedirectUri() {
     if (kIsWeb) {
       final currentUrl = Uri.base;
-      // Always use the current URL dynamically
-      return '${currentUrl.scheme}://${currentUrl.host}/auth/callback';
+      // Check if we're on localhost or deployment
+      if (currentUrl.host.contains('localhost') ||
+          currentUrl.host.contains('127.0.0.1')) {
+        return 'http://localhost:3000/auth/callback';
+      } else {
+        // Hardcoded Vercel URL for deployment
+        return 'https://model-day1.vercel.app/auth/callback';
+      }
     }
     return 'http://localhost:3000/auth/callback'; // Fallback for non-web
   }
@@ -41,13 +47,14 @@ class OAuthConfigService {
     'openid',
     'email',
     'profile',
-    'https://www.googleapis.com/auth/calendar'
+    'https://www.googleapis.com/auth/calendar',
   ];
 
   /// Get the appropriate Google Sign-In configuration for the current platform
   static GoogleSignIn getGoogleSignInInstance() {
     debugPrint(
-        '🔐 OAuth ENABLED - Initializing Google Sign-In for platform: ${kIsWeb ? 'web' : defaultTargetPlatform.name}');
+      '🔐 OAuth ENABLED - Initializing Google Sign-In for platform: ${kIsWeb ? 'web' : defaultTargetPlatform.name}',
+    );
     debugPrint('✅ OAuth Status: FULLY ENABLED - Build v3');
 
     if (kIsWeb) {

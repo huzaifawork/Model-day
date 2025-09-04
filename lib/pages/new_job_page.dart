@@ -15,6 +15,7 @@ import 'package:new_flutter/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:new_flutter/services/file_upload_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 
 class NewJobPage extends StatefulWidget {
   final Job? job; // For editing existing job
@@ -44,6 +45,11 @@ class _NewJobPageState extends State<NewJobPage> {
 
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
+
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
 
   // Form State
   DateTime _selectedDate = DateTime.now();
@@ -117,6 +123,10 @@ class _NewJobPageState extends State<NewJobPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (5 text fields: Client Name, Custom Job Type, Location, Rate, Notes)
+    _manualFocusNodes = List.generate(5, (index) => FocusNode());
+
     debugPrint('🔧 NewJobPage.initState() - job: ${widget.job?.id}');
     if (widget.job != null) {
       debugPrint('📝 Loading job data for editing: ${widget.job!.clientName}');
@@ -172,6 +182,13 @@ class _NewJobPageState extends State<NewJobPage> {
       if (job.date.isNotEmpty) {
         _selectedDate = DateTime.parse(job.date);
       }
+
+      // Load end date for multi-day jobs
+      if (job.endDate != null && job.endDate!.isNotEmpty) {
+        _endDate = DateTime.parse(job.endDate!);
+        _isDateRange = true;
+      }
+
       if (job.time != null && job.time!.isNotEmpty) {
         final timeParts = job.time!.split(':');
         if (timeParts.length == 2) {
@@ -317,6 +334,12 @@ class _NewJobPageState extends State<NewJobPage> {
     _taxController.dispose();
     _additionalFeesController.dispose();
     _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
@@ -545,7 +568,8 @@ class _NewJobPageState extends State<NewJobPage> {
     );
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> extractedData) {
+  Future<void> _handleOcrDataExtracted(
+      Map<String, dynamic> extractedData) async {
     debugPrint('=== JOB PAGE FORM HANDLER CALLED ===');
     debugPrint('OCR Data received: $extractedData');
     debugPrint('Keys received: ${extractedData.keys.toList()}');
@@ -580,15 +604,11 @@ class _NewJobPageState extends State<NewJobPage> {
         debugPrint('Setting usage rate: ${extractedData['usageRate']}');
         _usageController.text = extractedData['usageRate'].toString();
       }
+      // Agent matching moved outside setState - see below
       if (extractedData['bookingAgent'] != null) {
-        debugPrint('Setting agent: ${extractedData['bookingAgent']}');
-        // Find agent by name
-        final agentName =
-            extractedData['bookingAgent'].toString().toLowerCase();
-        if (agentName.contains('ogbhai')) {
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj'; // ogbhai's ID
-          debugPrint('Agent ID set to: $_selectedAgentId');
-        }
+        debugPrint('✅ Agent will be set after setState');
+      } else {
+        debugPrint('❌ No bookingAgent found in OCR data');
       }
       if (extractedData['jobType'] != null ||
           extractedData['optionType'] != null) {
@@ -599,6 +619,47 @@ class _NewJobPageState extends State<NewJobPage> {
           _customJobTypeController.text = jobType.toString();
           debugPrint('Custom job type set to: $jobType');
         }
+      }
+
+      // Handle additional financial fields
+      if (extractedData['extraHours'] != null) {
+        debugPrint('Setting extra hours: ${extractedData['extraHours']}');
+        _extraHoursController.text = extractedData['extraHours'].toString();
+      }
+
+      if (extractedData['agencyFee'] != null) {
+        debugPrint('Setting agency fee: ${extractedData['agencyFee']}');
+        _agencyFeeController.text = extractedData['agencyFee'].toString();
+      } else if (_agencyFeeController.text.isEmpty) {
+        _agencyFeeController.text = '20';
+        debugPrint('Setting default agency fee to 20%');
+      }
+
+      if (extractedData['tax'] != null) {
+        debugPrint('Setting tax: ${extractedData['tax']}');
+        _taxController.text = extractedData['tax'].toString();
+      }
+
+      if (extractedData['additionalFees'] != null) {
+        debugPrint(
+            'Setting additional fees: ${extractedData['additionalFees']}');
+        _additionalFeesController.text =
+            extractedData['additionalFees'].toString();
+      }
+
+      if (extractedData['callTime'] != null) {
+        debugPrint('Setting call time: ${extractedData['callTime']}');
+        _callTime = _parseTimeString(extractedData['callTime'].toString());
+      }
+
+      if (extractedData['startTime'] != null) {
+        debugPrint('Setting start time: ${extractedData['startTime']}');
+        _startTime = _parseTimeString(extractedData['startTime'].toString());
+      }
+
+      if (extractedData['endTime'] != null) {
+        debugPrint('Setting end time: ${extractedData['endTime']}');
+        _endTime = _parseTimeString(extractedData['endTime'].toString());
       }
       if (extractedData['status'] != null) {
         debugPrint(
@@ -653,8 +714,184 @@ class _NewJobPageState extends State<NewJobPage> {
           }
         }
       }
+
+      // Apply smart defaults based on extracted data context
+      _applySmartDefaults(extractedData);
     });
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(extractedData);
+
+    // Handle agent matching after setState (async operation)
+    if (extractedData['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${extractedData['bookingAgent']}');
+      await _matchAgentIntelligently(extractedData['bookingAgent'].toString());
+    }
+
     debugPrint('=== JOB PAGE FORM UPDATE COMPLETE ===');
+  }
+
+  /// Apply smart defaults based on extracted data context
+  void _applySmartDefaults(Map<String, dynamic> extractedData) {
+    debugPrint('🧠 Applying smart defaults based on context...');
+
+    // Smart job type detection
+    if (_selectedJobType == 'Add manually' &&
+        _customJobTypeController.text.isEmpty) {
+      final clientName =
+          extractedData['clientName']?.toString().toLowerCase() ?? '';
+      final notes = extractedData['notes']?.toString().toLowerCase() ?? '';
+      final jobTitle =
+          extractedData['jobTitle']?.toString().toLowerCase() ?? '';
+
+      // Detect job type from context
+      if (clientName.contains('samsung') ||
+          jobTitle.contains('galaxy') ||
+          notes.contains('commercial')) {
+        _customJobTypeController.text = 'Commercial';
+        debugPrint('🧠 Smart default: Commercial job detected');
+      } else if (notes.contains('editorial') || notes.contains('magazine')) {
+        _customJobTypeController.text = 'Editorial';
+        debugPrint('🧠 Smart default: Editorial job detected');
+      } else if (notes.contains('fashion') || notes.contains('runway')) {
+        _customJobTypeController.text = 'Fashion';
+        debugPrint('🧠 Smart default: Fashion job detected');
+      } else {
+        _customJobTypeController.text = 'Commercial';
+        debugPrint('🧠 Smart default: Default to Commercial');
+      }
+    }
+
+    // Smart time defaults based on job type
+    if (_startTime == null) {
+      final jobType = _customJobTypeController.text.toLowerCase();
+      if (jobType.contains('commercial') || jobType.contains('campaign')) {
+        _startTime =
+            const TimeOfDay(hour: 8, minute: 0); // 8:00 AM for commercial
+        debugPrint('🧠 Smart default: Commercial start time 8:00 AM');
+      } else if (jobType.contains('editorial') || jobType.contains('fashion')) {
+        _startTime =
+            const TimeOfDay(hour: 9, minute: 0); // 9:00 AM for editorial
+        debugPrint('🧠 Smart default: Editorial start time 9:00 AM');
+      } else {
+        _startTime = const TimeOfDay(hour: 8, minute: 30); // Default
+        debugPrint('🧠 Smart default: Default start time 8:30 AM');
+      }
+    }
+
+    if (_endTime == null) {
+      _endTime = const TimeOfDay(hour: 17, minute: 0); // 5:00 PM default
+      debugPrint('🧠 Smart default: End time 5:00 PM');
+    }
+
+    // Smart call time (usually 1-2 hours before start time)
+    if (_callTime == null && _startTime != null) {
+      final startHour = _startTime!.hour;
+      final callHour = startHour >= 2 ? startHour - 2 : startHour - 1;
+      _callTime = TimeOfDay(hour: callHour, minute: 0);
+      debugPrint('🧠 Smart default: Call time ${_callTime!.format(context)}');
+    }
+
+    // Smart currency based on location or client
+    if (_selectedCurrency == 'USD') {
+      final location =
+          extractedData['location']?.toString().toLowerCase() ?? '';
+      final clientName =
+          extractedData['clientName']?.toString().toLowerCase() ?? '';
+
+      if (location.contains('europe') ||
+          location.contains('poland') ||
+          location.contains('germany') ||
+          clientName.contains('samsung') ||
+          extractedData['currency']?.toString() == 'EUR') {
+        _selectedCurrency = 'EUR';
+        debugPrint('🧠 Smart default: EUR currency detected');
+      } else if (location.contains('uk') || location.contains('london')) {
+        _selectedCurrency = 'GBP';
+        debugPrint('🧠 Smart default: GBP currency detected');
+      }
+    }
+  }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
   }
 
   Future<void> _createJob() async {
@@ -833,13 +1070,87 @@ class _NewJobPageState extends State<NewJobPage> {
     }
   }
 
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
+  /// Parse time string into TimeOfDay
+  TimeOfDay? _parseTimeString(String timeStr) {
+    try {
+      // Handle various time formats
+      final cleanTime = timeStr.toLowerCase().replaceAll(RegExp(r'[^\d:]'), '');
+      final timeParts = cleanTime.split(':');
+
+      if (timeParts.length >= 2) {
+        final hour = int.parse(timeParts[0]);
+        final minute = int.parse(timeParts[1]);
+
+        // Handle 24-hour format
+        if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+          debugPrint('✅ Parsed time: $hour:$minute');
+          return TimeOfDay(hour: hour, minute: minute);
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error parsing time "$timeStr": $e');
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppLayout(
       currentPage: '/new-job',
       title: widget.job != null ? 'Edit Job' : 'New Job',
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(0),
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom +
+              200, // Much more space for FAB
+        ),
         child: Form(
           key: _formKey,
           child: Column(
@@ -852,10 +1163,11 @@ class _NewJobPageState extends State<NewJobPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting job form after OCR...');
-                    _createJob();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting job form after OCR...');
+                  //   _createJob();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -864,9 +1176,13 @@ class _NewJobPageState extends State<NewJobPage> {
               _buildSectionHeader('Basic Information', Icons.info_outline),
               const SizedBox(height: 16),
 
-              _formNavigation.createInputField(
-                label: 'Client Name *',
+              TextFormField(
                 controller: _clientNameController,
+                focusNode: _manualFocusNodes[0], // Client Name
+                decoration: const InputDecoration(
+                  labelText: 'Client Name *',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a client name';
@@ -890,9 +1206,13 @@ class _NewJobPageState extends State<NewJobPage> {
                 Row(
                   children: [
                     Expanded(
-                      child: _formNavigation.createInputField(
+                      child: TextFormField(
                         controller: _customJobTypeController,
-                        placeholder: 'Enter custom job type',
+                        focusNode: _manualFocusNodes[1], // Custom Job Type
+                        decoration: const InputDecoration(
+                          hintText: 'Enter custom job type',
+                          border: OutlineInputBorder(),
+                        ),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
                             return 'Job type is required';
@@ -1048,9 +1368,13 @@ class _NewJobPageState extends State<NewJobPage> {
                 activeColor: AppTheme.goldColor,
               ),
               const SizedBox(height: 16),
-              _formNavigation.createInputField(
-                label: 'Location *',
+              TextFormField(
                 controller: _locationController,
+                focusNode: _manualFocusNodes[2], // Location
+                decoration: const InputDecoration(
+                  labelText: 'Location *',
+                  border: OutlineInputBorder(),
+                ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'Please enter a location';
@@ -1257,10 +1581,14 @@ class _NewJobPageState extends State<NewJobPage> {
                 children: [
                   Expanded(
                     flex: 2,
-                    child: _formNavigation.createInputField(
-                      label: 'Rate',
+                    child: TextFormField(
                       controller: _rateController,
+                      focusNode: _manualFocusNodes[3], // Rate
                       keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Rate',
+                        border: OutlineInputBorder(),
+                      ),
                       validator: (value) {
                         if (value != null && value.isNotEmpty) {
                           final rate = double.tryParse(value);
@@ -1320,11 +1648,15 @@ class _NewJobPageState extends State<NewJobPage> {
               _buildSectionHeader('Additional Details', Icons.description),
               const SizedBox(height: 16),
 
-              _formNavigation.createInputField(
-                label: 'Notes',
+              TextFormField(
                 controller: _notesController,
+                focusNode: _manualFocusNodes[4], // Notes
                 maxLines: 3,
-                placeholder: 'Add any additional notes or requirements...',
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  hintText: 'Add any additional notes or requirements...',
+                  border: OutlineInputBorder(),
+                ),
               ),
 
               const SizedBox(height: 24),
@@ -1775,6 +2107,9 @@ class _NewJobPageState extends State<NewJobPage> {
                   isLoading: _isLoading,
                 ),
               ),
+
+              // Fixed space to separate form content from Next button area
+              const SizedBox(height: 120),
             ],
           ),
         ),

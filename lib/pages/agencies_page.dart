@@ -5,10 +5,10 @@ import 'package:new_flutter/widgets/ui/button.dart' as ui;
 import 'package:new_flutter/widgets/ui/input.dart' as ui;
 import 'package:new_flutter/widgets/ui/card.dart' as ui;
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/agency.dart';
 import '../providers/agencies_provider.dart';
 import '../widgets/clickable_contact_info.dart';
+import 'package:new_flutter/theme/app_theme.dart';
 
 class AgenciesPage extends StatefulWidget {
   const AgenciesPage({super.key});
@@ -32,18 +32,6 @@ class _AgenciesPageState extends State<AgenciesPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _launchUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
-  String _cleanPhoneNumber(String phone) {
-    // Remove all non-digit characters except +
-    return phone.replaceAll(RegExp(r'[^\d+]'), '');
   }
 
   Future<void> _showDeleteConfirmation(Agency agency) async {
@@ -106,6 +94,7 @@ class _AgenciesPageState extends State<AgenciesPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header with agency name and action buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -121,19 +110,50 @@ class _AgenciesPageState extends State<AgenciesPage> {
                           height: 1.3,
                         ),
                       ),
-                      if (agency.website != null) ...[
-                        const SizedBox(height: 8),
-                        InkWell(
-                          onTap: () => _launchUrl(agency.website!),
-                          child: Text(
-                            agency.website!,
-                            style: TextStyle(
-                              color: Colors.blue[600],
-                              fontSize: 14,
-                            ),
+                      const SizedBox(height: 8),
+                      // Agency type badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: agency.agencyType == 'Sister Agency'
+                              ? Colors.blue[100]
+                              : Colors.green[100],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          agency.agencyType ?? 'Agency',
+                          style: TextStyle(
+                            color: agency.agencyType == 'Sister Agency'
+                                ? Colors.blue[700]
+                                : Colors.green[700],
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 4),
+                      // Status badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green[100],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'Active',
+                          style: TextStyle(
+                            color: Colors.green[700],
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -147,7 +167,7 @@ class _AgenciesPageState extends State<AgenciesPage> {
                           '/new-agency',
                           arguments: agency.id,
                         );
-                        if (result == true && mounted) {
+                        if (result != null && mounted) {
                           context.read<AgenciesProvider>().loadAgencies();
                         }
                       },
@@ -164,7 +184,23 @@ class _AgenciesPageState extends State<AgenciesPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+
+            // Website link
+            if (agency.website != null) ...[
+              ClickableContactInfo(
+                text: agency.website!,
+                type: ContactType.location,
+                showIcon: true,
+                icon: Icons.language,
+                iconColor: Colors.grey[600],
+                textColor: Colors.white70,
+                fontSize: 14,
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // Location information
             if (agency.address != null ||
                 agency.city != null ||
                 agency.country != null) ...[
@@ -173,8 +209,8 @@ class _AgenciesPageState extends State<AgenciesPage> {
                 children: [
                   Icon(
                     Icons.location_on_outlined,
-                    size: 20,
-                    color: Colors.grey[400],
+                    size: 16,
+                    color: Colors.grey[600],
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -184,9 +220,9 @@ class _AgenciesPageState extends State<AgenciesPage> {
                         if (agency.address != null)
                           ClickableContactInfo(
                             text: agency.address!,
-                            type: ContactType.address,
+                            type: ContactType.location,
                             showIcon: false,
-                            textColor: Colors.blue[600],
+                            textColor: Colors.white70,
                             fontSize: 14,
                           ),
                         if (agency.city != null || agency.country != null)
@@ -197,7 +233,7 @@ class _AgenciesPageState extends State<AgenciesPage> {
                             ].where((e) => e != null).join(', '),
                             type: ContactType.location,
                             showIcon: false,
-                            textColor: Colors.blue[600],
+                            textColor: Colors.white70,
                             fontSize: 14,
                           ),
                       ],
@@ -205,133 +241,163 @@ class _AgenciesPageState extends State<AgenciesPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
             ],
-            if (agency.commissionRate > 0) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green[100]!),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.percent_outlined,
-                      size: 16,
-                      color: Colors.green[700],
+
+            // Main Booker section
+            if (agency.mainBooker != null) ...[
+              const Divider(height: 16, thickness: 1, color: Colors.white10),
+
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Main Booker:',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Commission: ${agency.commissionRate}%',
-                      style: TextStyle(
-                        color: Colors.green[700],
-                        fontWeight: FontWeight.w500,
-                        fontSize: 14,
-                      ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    agency.mainBooker!.name,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                  if (agency.mainBooker!.email.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    ClickableContactInfo(
+                      text: agency.mainBooker!.email,
+                      type: ContactType.email,
+                      showIcon: true,
+                      textColor: Colors.white70,
+                      fontSize: 14,
                     ),
                   ],
-                ),
+                  if (agency.mainBooker!.phone.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    ClickableContactInfo(
+                      text: agency.mainBooker!.phone,
+                      type: ContactType.whatsapp,
+                      showIcon: true,
+                      textColor: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ],
+                  if (agency.mainBooker!.instagram != null &&
+                      agency.mainBooker!.instagram!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    ClickableContactInfo(
+                      text: agency.mainBooker!.instagram!.replaceAll('@', ''),
+                      type: ContactType.instagram,
+                      showIcon: true,
+                      textColor: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Finance Contact section
+            if (agency.financeContact != null) ...[
+              const Divider(height: 32, thickness: 1, color: Colors.white10),
+
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Finance Contact:',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    agency.financeContact!.name,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                  if (agency.financeContact!.email.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    ClickableContactInfo(
+                      text: agency.financeContact!.email,
+                      type: ContactType.email,
+                      showIcon: true,
+                      textColor: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ],
+                  if (agency.financeContact!.phone.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    ClickableContactInfo(
+                      text: agency.financeContact!.phone,
+                      type: ContactType.whatsapp,
+                      showIcon: true,
+                      textColor: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ],
+                  if (agency.financeContact!.instagram != null &&
+                      agency.financeContact!.instagram!.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    ClickableContactInfo(
+                      text:
+                          agency.financeContact!.instagram!.replaceAll('@', ''),
+                      type: ContactType.instagram,
+                      showIcon: true,
+                      textColor: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // Commission section
+            if (agency.commissionRate > 0) ...[
+              const Divider(height: 32, thickness: 1, color: Colors.white10),
+
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Commission: ${agency.commissionRate}%',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
             ],
-            if (agency.mainBooker != null) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[800]!),
-                ),
+
+            // View Contract button - only show when contract exists
+            if (agency.contract != null && agency.contract!.isNotEmpty) ...[
+              InkWell(
+                onTap: () {
+                  // Placeholder for contract viewing functionality
+                },
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.person_outline,
-                          size: 18,
-                          color: Colors.grey[700],
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Main Booker',
-                          style: TextStyle(
-                            color: Colors.grey[700],
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
                     Text(
-                      agency.mainBooker!.name,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
+                      'View Contract',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
                       ),
                     ),
-                    if (agency.mainBooker!.email.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      InkWell(
-                        onTap: () => _launchUrl(
-                          'mailto:${agency.mainBooker!.email}',
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.mail_outline,
-                              size: 16,
-                              color: Colors.blue[600],
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                agency.mainBooker!.email,
-                                style: TextStyle(
-                                  color: Colors.blue[600],
-                                  fontSize: 14,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    if (agency.mainBooker!.phone.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      InkWell(
-                        onTap: () =>
-                            _launchUrl('https://wa.me/${_cleanPhoneNumber(agency.mainBooker!.phone)}'),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.chat_outlined,
-                              size: 16,
-                              color: Colors.blue[600],
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                agency.mainBooker!.phone,
-                                style: TextStyle(
-                                  color: Colors.blue[600],
-                                  fontSize: 14,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -514,8 +580,13 @@ class _AgenciesPageState extends State<AgenciesPage> {
                               : ListView.separated(
                                   padding: const EdgeInsets.all(24),
                                   itemCount: provider.filteredAgencies.length,
-                                  separatorBuilder: (context, index) =>
-                                      const SizedBox(height: 16),
+                                  separatorBuilder: (context, index) => Column(
+                                    children: const [
+                                      SizedBox(height: 8),
+                                      Divider(color: AppTheme.borderColor, thickness: 1, height: 1),
+                                      SizedBox(height: 8),
+                                    ],
+                                  ),
                                   itemBuilder: (context, index) =>
                                       _buildAgencyCard(
                                           provider.filteredAgencies[index]),

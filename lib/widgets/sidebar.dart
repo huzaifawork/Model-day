@@ -326,6 +326,11 @@ class _SidebarState extends State<Sidebar> with TickerProviderStateMixin {
                         '+',
                         '/submit-event',
                       ),
+                      _buildNavItem(
+                        'Approvals',
+                        Icons.check_circle_outline,
+                        '/approvals',
+                      ),
 
                       // Profile Section
                       const Padding(

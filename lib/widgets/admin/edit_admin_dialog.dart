@@ -228,7 +228,7 @@ class _EditAdminDialogState extends State<EditAdminDialog> {
                   ),
                 ),
                 value: _isActive,
-                activeColor: AppTheme.goldColor,
+                activeThumbColor: AppTheme.goldColor,
                 onChanged: (value) {
                   setState(() {
                     _isActive = value;

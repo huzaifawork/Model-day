@@ -8,6 +8,7 @@ import 'package:new_flutter/widgets/ocr_upload_widget.dart';
 import 'package:new_flutter/theme/app_theme.dart';
 import 'package:new_flutter/models/ai_job.dart';
 import 'package:new_flutter/services/ai_jobs_service.dart';
+import 'package:new_flutter/services/agents_service.dart';
 import 'package:intl/intl.dart';
 
 class NewAiJobPage extends StatefulWidget {
@@ -28,6 +29,11 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
 
   // Form Navigation Helper
   final FormNavigationHelper _formNavigation = FormNavigationHelper();
+
+  // Field navigation
+
+  // Manual focus nodes for better control
+  late List<FocusNode> _manualFocusNodes;
 
   String _selectedType = 'text_to_image';
   String _selectedStatus = 'pending';
@@ -80,6 +86,9 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
   @override
   void initState() {
     super.initState();
+
+    // Initialize manual focus nodes for text fields (5 text fields)
+    _manualFocusNodes = List.generate(5, (index) => FocusNode());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args != null) {
@@ -187,10 +196,17 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
     _locationController.dispose();
     _rateController.dispose();
     _notesController.dispose();
+    _formNavigation.dispose();
+
+    // Dispose manual focus nodes
+    for (final focusNode in _manualFocusNodes) {
+      focusNode.dispose();
+    }
+
     super.dispose();
   }
 
-  void _handleOcrDataExtracted(Map<String, dynamic> data) {
+  Future<void> _handleOcrDataExtracted(Map<String, dynamic> data) async {
     debugPrint('🤖 OCR data extracted for AI job: $data');
 
     setState(() {
@@ -316,26 +332,11 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
         }
       }
 
-      // Map agent - try to find matching agent ID
+      // Agent matching moved outside setState - see below
       if (data['bookingAgent'] != null) {
-        final agentName = data['bookingAgent'].toString().toLowerCase();
-        if (agentName.contains('ogbhai')) {
-          _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj';
-        }
-
-        // Also add to notes for reference
-        final currentNotes = _notesController.text;
-        final agentInfo = 'Booking Agent: ${data['bookingAgent']}';
-        _notesController.text =
-            currentNotes.isEmpty ? agentInfo : '$currentNotes\n$agentInfo';
+        debugPrint('✅ Agent will be set after setState');
       } else {
-        // Set default agent ID for ogbhai
-        _selectedAgentId = 'sUAOiTx4b9dzTlSkIIOj';
-
-        final currentNotes = _notesController.text;
-        final agentInfo = 'Booking Agent: ogbhai(uzibhaikiagencykoishak)';
-        _notesController.text =
-            currentNotes.isEmpty ? agentInfo : '$currentNotes\n$agentInfo';
+        debugPrint('❌ No agent found in OCR data');
       }
 
       // Map requirements/specifications to notes
@@ -375,7 +376,147 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
     });
 
     debugPrint('🤖 AI job form populated with OCR data');
+
+    // Add ALL extracted data to notes for complete record
+    _appendAllExtractedDataToNotes(data);
+
+    // Handle agent matching after setState (async operation)
+    if (data['bookingAgent'] != null) {
+      debugPrint('🔍 Now matching agent: ${data['bookingAgent']}');
+      await _matchAgentIntelligently(data['bookingAgent'].toString());
+    }
   }
+
+  /// Intelligently match extracted agent name against actual agents in the system
+  Future<void> _matchAgentIntelligently(String extractedAgentName) async {
+    try {
+      debugPrint('🔍 Matching agent: "$extractedAgentName"');
+
+      // Load all available agents
+      final agentsService = AgentsService();
+      final agents = await agentsService.getAgents();
+
+      debugPrint(
+          '📋 Available agents: ${agents.map((a) => '${a.name} (${a.id})').toList()}');
+
+      if (agents.isEmpty) {
+        debugPrint('❌ No agents found in system');
+        return;
+      }
+
+      final extractedLower = extractedAgentName.toLowerCase().trim();
+
+      // Try exact match first
+      for (final agent in agents) {
+        if (agent.name.toLowerCase() == extractedLower) {
+          debugPrint('✅ Exact match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try partial match (contains)
+      for (final agent in agents) {
+        final agentNameLower = agent.name.toLowerCase();
+        if (agentNameLower.contains(extractedLower) ||
+            extractedLower.contains(agentNameLower)) {
+          debugPrint('✅ Partial match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // Try fuzzy matching (split names and check parts)
+      final extractedParts = extractedLower.split(' ');
+      for (final agent in agents) {
+        final agentParts = agent.name.toLowerCase().split(' ');
+        bool hasMatch = false;
+
+        for (final extractedPart in extractedParts) {
+          for (final agentPart in agentParts) {
+            if (extractedPart.length > 2 && agentPart.contains(extractedPart)) {
+              hasMatch = true;
+              break;
+            }
+          }
+          if (hasMatch) break;
+        }
+
+        if (hasMatch) {
+          debugPrint('✅ Fuzzy match found: ${agent.name} (${agent.id})');
+          setState(() {
+            _selectedAgentId = agent.id;
+          });
+          return;
+        }
+      }
+
+      // No match found - use first agent as default
+      if (agents.isNotEmpty) {
+        debugPrint(
+            '⚠️ No match for "$extractedAgentName", using first agent: ${agents.first.name}');
+        setState(() {
+          _selectedAgentId = agents.first.id;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error matching agent: $e');
+    }
+  }
+
+  /// Append ALL extracted OCR data to notes field for complete record
+  void _appendAllExtractedDataToNotes(Map<String, dynamic> extractedData) {
+    final List<String> allData = [];
+
+    // Add header
+    
+
+    // Add all non-null extracted data
+    extractedData.forEach((key, value) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        // Format the key to be more readable
+        final formattedKey = _formatFieldName(key);
+        allData.add('$formattedKey: $value');
+      }
+    });
+
+    // Add timestamp
+    allData.add('Extracted: ${DateTime.now().toString().substring(0, 19)}');
+    
+
+    // Append to existing notes
+    final currentNotes = _notesController.text.trim();
+    final ocrData = allData.join('\n');
+
+    if (currentNotes.isEmpty) {
+      _notesController.text = ocrData;
+    } else {
+      _notesController.text = '$currentNotes\n\n$ocrData';
+    }
+
+    debugPrint('📝 Added ${extractedData.length} OCR fields to notes');
+  }
+
+  /// Format field names to be more readable
+  String _formatFieldName(String fieldName) {
+    // Convert camelCase to readable format
+    final formatted = fieldName
+        .replaceAllMapped(RegExp(r'([A-Z])'), (match) => ' ${match.group(1)}')
+        .toLowerCase()
+        .split(' ')
+        .map((word) =>
+            word.isEmpty ? '' : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+
+    return formatted;
+  }
+
+
+
 
   String _formatTime(TimeOfDay? time) {
     if (time == null) return '';
@@ -523,10 +664,11 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
                     debugPrint('OCR Widget callback received data: $data');
                     _handleOcrDataExtracted(data);
                   },
-                  onAutoSubmit: () {
-                    debugPrint('Auto-submitting AI job form after OCR...');
-                    _handleSubmit();
-                  },
+                  // Auto-submit disabled for testing
+                  // onAutoSubmit: () {
+                  //   debugPrint('Auto-submitting AI job form after OCR...');
+                  //   _handleSubmit();
+                  // },
                 ),
                 const SizedBox(height: 24),
               ],
@@ -535,9 +677,13 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
               _buildSectionCard(
                 'Basic Information',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Client Name',
+                  TextFormField(
                     controller: _clientNameController,
+                    focusNode: _manualFocusNodes[0], // Client Name
+                    decoration: const InputDecoration(
+                      labelText: 'Client Name',
+                      border: OutlineInputBorder(),
+                    ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter client name';
@@ -548,15 +694,23 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
                   const SizedBox(height: 16),
                   _buildAiJobTypeField(),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Description',
+                  TextFormField(
                     controller: _descriptionController,
+                    focusNode: _manualFocusNodes[1], // Description
                     maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  _formNavigation.createInputField(
-                    label: 'Location',
+                  TextFormField(
                     controller: _locationController,
+                    focusNode: _manualFocusNodes[2], // Location
+                    decoration: const InputDecoration(
+                      labelText: 'Location',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -608,10 +762,14 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
               _buildSectionCard(
                 'Notes',
                 [
-                  _formNavigation.createInputField(
-                    label: 'Notes',
+                  TextFormField(
                     controller: _notesController,
+                    focusNode: _manualFocusNodes[4], // Notes
                     maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -692,7 +850,7 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _aiJobTypes.contains(_selectedType) ? _selectedType : null,
+            initialValue: _aiJobTypes.contains(_selectedType) ? _selectedType : null,
             decoration: const InputDecoration(
               border: InputBorder.none,
               contentPadding:
@@ -818,7 +976,7 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _statusOptions.contains(_selectedStatus)
+            initialValue: _statusOptions.contains(_selectedStatus)
                 ? _selectedStatus
                 : _statusOptions.first,
             decoration: const InputDecoration(
@@ -853,10 +1011,14 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
       children: [
         Expanded(
           flex: 2,
-          child: _formNavigation.createInputField(
-            label: 'Rate',
+          child: TextFormField(
             controller: _rateController,
+            focusNode: _manualFocusNodes[3], // Rate
             keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Rate',
+              border: OutlineInputBorder(),
+            ),
           ),
         ),
         const SizedBox(width: 16),
@@ -880,7 +1042,7 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
                   border: Border.all(color: const Color(0xFF2E2E2E)),
                 ),
                 child: DropdownButtonFormField<String>(
-                  value: _currencies.contains(_selectedCurrency)
+                  initialValue: _currencies.contains(_selectedCurrency)
                       ? _selectedCurrency
                       : _currencies.first,
                   decoration: const InputDecoration(
@@ -933,7 +1095,7 @@ class _NewAiJobPageState extends State<NewAiJobPage> {
             border: Border.all(color: const Color(0xFF2E2E2E)),
           ),
           child: DropdownButtonFormField<String>(
-            value: _paymentStatusOptions.contains(_selectedPaymentStatus)
+            initialValue: _paymentStatusOptions.contains(_selectedPaymentStatus)
                 ? _selectedPaymentStatus
                 : null,
             decoration: const InputDecoration(
