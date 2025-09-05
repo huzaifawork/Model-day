@@ -10,7 +10,7 @@ A comprehensive Flutter application designed specifically for models to manage t
 - **👥 Agent Directory** - Comprehensive agent management with contracts
 - **🏢 Agency Management** - Track agency relationships and contracts
 - **📊 Export System** - CSV export functionality for all data
-- **📱 Mobile Navigation** - Swipe gestures for mobile devices
+
 
 ### Event Types Supported
 1. **Options** - Client options with rates and status tracking
@@ -108,7 +108,7 @@ flutter build web --release
 ✅ **Enhanced Job Forms** - Financial calculations and multi-currency support
 ✅ **Agency Management** - Contract tracking and enhanced details
 ✅ **Export Functionality** - CSV export for all data types
-✅ **Mobile Swipe Navigation** - Gesture-based navigation
+
 ✅ **File Upload System** - Document management with type icons
 ✅ **Responsive Design** - Optimized for all screen sizes
 ✅ **Vercel Optimization** - Configured for seamless deployment

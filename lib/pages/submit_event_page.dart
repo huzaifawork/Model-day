@@ -371,7 +371,7 @@ class _SubmitEventPageState extends State<SubmitEventPage> {
                     Row(
                       children: [
                         const Text(
-                          'Agent Email (Who is sending this request)',
+                          'Agent Email',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -470,7 +470,7 @@ class _SubmitEventPageState extends State<SubmitEventPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Model Email (Who will receive this request)',
+                      'Model Email',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,

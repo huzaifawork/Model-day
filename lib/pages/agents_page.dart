@@ -291,12 +291,15 @@ class _AgentsPageState extends State<AgentsPage> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            const Text(
-                              'Contact Information',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
+                            Flexible(
+                              child: Text(
+                                'Contact Information',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: MediaQuery.of(context).size.width < 600 ? 14 : 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],

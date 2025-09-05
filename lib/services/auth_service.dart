@@ -296,35 +296,7 @@ class AuthService extends ChangeNotifier {
       _loading = true;
       notifyListeners();
 
-      // Check available sign-in methods for this email to provide clearer UX
-      // Especially important for users who originally signed up with Google
-      // Using try-catch instead of fetchSignInMethodsForEmail which is deprecated
-      try {
-        // Try to sign in with empty password to check if email exists with password provider
-        await _auth.signInWithEmailAndPassword(
-          email: email.trim(),
-          password: 'non-existent-password-to-check-account-existence',
-        );
-      } catch (e) {
-        // If error is user-not-found, the email doesn't exist
-        // If error is wrong-password, the email exists with password provider
-        // If error is account-exists-with-different-credential, it's likely a Google account
-        if (e is FirebaseAuthException && e.code == 'account-exists-with-different-credential') {
-           _loading = false;
-           notifyListeners();
-           throw FirebaseAuthException(
-             code: 'requires-google-signin',
-             message:
-                 'This email is registered with Google. Please use Google sign-in.',
-           );
-         } else if (e is FirebaseAuthException && e.code == 'wrong-password') {
-           // Email exists with password provider, continue with normal sign in
-           // We'll let the actual sign in attempt below handle the authentication
-         } else {
-           // For other errors, rethrow to be handled by the caller
-           rethrow;
-         }
-       }
+      debugPrint('🔄 Attempting to sign in with email: ${email.split('@')[0]}@...');
 
       final credential = await _auth.signInWithEmailAndPassword(
         email: email.trim(),
@@ -340,14 +312,14 @@ class AuthService extends ChangeNotifier {
       // Check if user is admin and update admin auth service
       await _checkAndSetAdminStatus();
 
-      debugPrint('Sign in successful for user: ${_currentUser?.email}');
+      debugPrint('✅ Sign in successful for user: ${_currentUser?.email}');
 
       _loading = false;
       notifyListeners();
 
       // Don't navigate here - let the auth state listener handle navigation
     } catch (e) {
-      debugPrint('Sign in error: $e');
+      debugPrint('❌ Sign in error: $e');
       _loading = false;
       notifyListeners();
       rethrow;

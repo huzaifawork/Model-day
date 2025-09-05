@@ -1963,73 +1963,138 @@ class _CommunityBoardPageState extends State<CommunityBoardPage> {
                         ),
                         Consumer<NotificationProvider>(
                           builder: (context, notificationProvider, child) {
-                            return Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                AnimatedOpacity(
-                                  opacity:
-                                      notificationProvider.notifications.any((n) => !n.isRead)
-                                          ? 1.0
-                                          : 0.5,
-                                  duration: const Duration(milliseconds: 200),
-                                  child: TextButton.icon(
-                                    onPressed: notificationProvider.notifications.any((n) => !n.isRead)
-                                        ? () => notificationProvider.markAllAsRead()
-                                        : null,
-                                    icon: const Icon(
-                                      Icons.done_all,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      isMobile ? 'Read all' : 'Mark all read',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: notificationProvider.notifications.any((n) => !n.isRead)
-                                          ? AppTheme.goldColor
-                                          : Colors.grey,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                            if (isMobile) {
+                              // Mobile layout: Stack buttons vertically or use icons only
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      AnimatedOpacity(
+                                        opacity:
+                                            notificationProvider.notifications.any((n) => !n.isRead)
+                                                ? 1.0
+                                                : 0.5,
+                                        duration: const Duration(milliseconds: 200),
+                                        child: IconButton(
+                                          onPressed: notificationProvider.notifications.any((n) => !n.isRead)
+                                              ? () => notificationProvider.markAllAsRead()
+                                              : null,
+                                          icon: const Icon(
+                                            Icons.done_all,
+                                            size: 18,
+                                          ),
+                                          color: notificationProvider.notifications.any((n) => !n.isRead)
+                                              ? AppTheme.goldColor
+                                              : Colors.grey,
+                                          tooltip: 'Mark all read',
+                                          constraints: const BoxConstraints(
+                                            minWidth: 32,
+                                            minHeight: 32,
+                                          ),
+                                          padding: const EdgeInsets.all(4),
+                                        ),
+                                      ),
+                                      AnimatedOpacity(
+                                        opacity:
+                                            notificationProvider.notifications.isNotEmpty
+                                                ? 1.0
+                                                : 0.5,
+                                        duration: const Duration(milliseconds: 200),
+                                        child: IconButton(
+                                          onPressed: notificationProvider.notifications.isNotEmpty
+                                              ? () => notificationProvider.clearAllNotifications()
+                                              : null,
+                                          icon: const Icon(
+                                            Icons.clear_all,
+                                            size: 18,
+                                          ),
+                                          color: notificationProvider.notifications.isNotEmpty
+                                              ? Colors.red.shade400
+                                              : Colors.grey,
+                                          tooltip: 'Clear all',
+                                          constraints: const BoxConstraints(
+                                            minWidth: 32,
+                                            minHeight: 32,
+                                          ),
+                                          padding: const EdgeInsets.all(4),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              );
+                            } else {
+                              // Desktop layout: Keep original button layout
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AnimatedOpacity(
+                                    opacity:
+                                        notificationProvider.notifications.any((n) => !n.isRead)
+                                            ? 1.0
+                                            : 0.5,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: TextButton.icon(
+                                      onPressed: notificationProvider.notifications.any((n) => !n.isRead)
+                                          ? () => notificationProvider.markAllAsRead()
+                                          : null,
+                                      icon: const Icon(
+                                        Icons.done_all,
+                                        size: 16,
+                                      ),
+                                      label: const Text(
+                                        'Mark all read',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: notificationProvider.notifications.any((n) => !n.isRead)
+                                            ? AppTheme.goldColor
+                                            : Colors.grey,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                AnimatedOpacity(
-                                  opacity:
-                                      notificationProvider.notifications.isNotEmpty
-                                          ? 1.0
-                                          : 0.5,
-                                  duration: const Duration(milliseconds: 200),
-                                  child: TextButton.icon(
-                                    onPressed: notificationProvider.notifications.isNotEmpty
-                                        ? () => notificationProvider.clearAllNotifications()
-                                        : null,
-                                    icon: const Icon(
-                                      Icons.clear_all,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      'Clear',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: notificationProvider.notifications.isNotEmpty
-                                          ? Colors.red.shade400
-                                          : Colors.grey,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                                  const SizedBox(width: 4),
+                                  AnimatedOpacity(
+                                    opacity:
+                                        notificationProvider.notifications.isNotEmpty
+                                            ? 1.0
+                                            : 0.5,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: TextButton.icon(
+                                      onPressed: notificationProvider.notifications.isNotEmpty
+                                          ? () => notificationProvider.clearAllNotifications()
+                                          : null,
+                                      icon: const Icon(
+                                        Icons.clear_all,
+                                        size: 16,
+                                      ),
+                                      label: const Text(
+                                        'Clear',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: notificationProvider.notifications.isNotEmpty
+                                            ? Colors.red.shade400
+                                            : Colors.grey,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            );
+                                ],
+                              );
+                            }
                           },
-                        ),
-                        const SizedBox(width: 8),
+                         ),
+                         const SizedBox(width: 8),
                         IconButton(
                           icon: const Icon(Icons.close, color: Colors.white),
                           onPressed: () => Navigator.of(context).pop(),
