@@ -15,9 +15,7 @@ import '../services/events_service.dart';
 import '../services/auth_service.dart';
 import '../services/on_stay_service.dart';
 import '../services/meetings_service.dart';
-import '../services/options_service.dart';
 import '../services/direct_bookings_service.dart';
-import '../services/direct_options_service.dart';
 import '../services/polaroids_service.dart';
 import '../services/ai_jobs_service.dart';
 import '../services/agents_service.dart';
@@ -89,9 +87,13 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       final tests = await Test.list();
       final onStays = await OnStayService.list();
       final meetings = await MeetingsService.list();
-      final options = await OptionsService.list();
+      // Load options from EventsService (same as options page)
+      final allEvents = await EventsService().getEvents();
+      final options = allEvents.where((event) => event.type == EventType.option).toList();
       final directBookings = await DirectBookingsService.list();
-      final directOptions = await DirectOptionsService.list();
+      // Load direct options from EventsService (same as direct options page)
+      final allEventsForDirectOptions = await EventsService().getEvents();
+      final directOptions = allEventsForDirectOptions.where((event) => event.type == EventType.directOption).toList();
       final polaroids = await PolaroidsService.list();
       final aiJobs = await AiJobsService.list();
 
@@ -257,9 +259,11 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       // Group Options by date
       for (final option in options) {
         try {
-          final date = DateTime.parse(option.date);
-          final dateKey = DateTime(date.year, date.month, date.day);
-          events[dateKey] = [...(events[dateKey] ?? []), option];
+          if (option.date != null) {
+            final date = option.date!;
+            final dateKey = DateTime(date.year, date.month, date.day);
+            events[dateKey] = [...(events[dateKey] ?? []), option];
+          }
         } catch (e) {
           debugPrint('Error processing Option date: $e');
           continue;
@@ -421,8 +425,12 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
       return event.clientName;
     } else if (event is DirectOptions) {
       return event.clientName;
+    } else if (event is Event && event.type == EventType.directOption) {
+      return event.clientName ?? 'Direct Option';
     } else if (event is Option) {
       return event.clientName;
+    } else if (event is Event && event.type == EventType.option) {
+      return event.clientName ?? 'Option';
     } else if (event is AiJob) {
       return event.clientName;
     } else if (event is Event) {
@@ -461,7 +469,9 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (event is Meeting) return 'Meeting';
     if (event is DirectBooking) return 'Direct Booking';
     if (event is DirectOptions) return 'Direct Option';
+    if (event is Event && event.type == EventType.directOption) return 'Direct Option';
     if (event is Option) return 'Option';
+    if (event is Event && event.type == EventType.option) return 'Option';
     if (event is AiJob) return 'AI Job';
     if (event is Event) {
       switch (event.type) {
@@ -521,7 +531,9 @@ class _CalendarPreviewWidgetState extends State<CalendarPreviewWidget> {
     if (event is OnStay) return Colors.indigo;
     if (event is DirectBooking) return Colors.red;
     if (event is DirectOptions) return Colors.teal;
+    if (event is Event && event.type == EventType.directOption) return Colors.teal;
     if (event is Option) return Colors.green;
+    if (event is Event && event.type == EventType.option) return Colors.green;
     if (event is AiJob) return Colors.cyan;
     if (event is Event) {
       switch (event.type) {

@@ -20,9 +20,9 @@ import '../services/jobs_service.dart';
 import '../services/events_service.dart';
 import '../services/on_stay_service.dart';
 import '../services/meetings_service.dart';
-import '../services/options_service.dart';
+
 import '../services/direct_bookings_service.dart';
-import '../services/direct_options_service.dart';
+
 import '../services/polaroids_service.dart';
 import '../services/ai_jobs_service.dart';
 import '../services/agents_service.dart';
@@ -172,9 +172,15 @@ class _CalendarPageState extends State<CalendarPage> {
         _getEventsForCalendar().timeout(const Duration(seconds: 10)),
         OnStayService.list().timeout(const Duration(seconds: 10)),
         MeetingsService.list().timeout(const Duration(seconds: 10)),
-        OptionsService.list().timeout(const Duration(seconds: 10)),
+        // Load options from EventsService (same as options page)
+        EventsService().getEvents().then((allEvents) => 
+          allEvents.where((event) => event.type == EventType.option).toList()
+        ).timeout(const Duration(seconds: 10)),
         DirectBookingsService.list().timeout(const Duration(seconds: 10)),
-        DirectOptionsService.list().timeout(const Duration(seconds: 10)),
+        // Load direct options from EventsService (same as direct options page)
+        EventsService().getEvents().then((allEvents) => 
+          allEvents.where((event) => event.type == EventType.directOption).toList()
+        ).timeout(const Duration(seconds: 10)),
         PolaroidsService.list().timeout(const Duration(seconds: 10)),
         AiJobsService.list().timeout(const Duration(seconds: 10)),
       ]).timeout(const Duration(seconds: 30));
@@ -187,9 +193,9 @@ class _CalendarPageState extends State<CalendarPage> {
       final generalEvents = futures[3] as List<Event>;
       final onStays = futures[4] as List<OnStay>;
       final meetings = futures[5] as List<Meeting>;
-      final options = futures[6] as List<Option>;
+      final options = futures[6] as List<Event>;
       final directBookings = futures[7] as List<DirectBooking>;
-      final directOptions = futures[8] as List<DirectOptions>;
+      final directOptions = futures[8] as List<Event>;
       final polaroids = futures[9] as List<Polaroid>;
       final aiJobs = futures[10] as List<AiJob>;
 
@@ -357,14 +363,16 @@ class _CalendarPageState extends State<CalendarPage> {
       for (final option in options) {
         if (_isDisposed) return;
         try {
-          final date = DateTime.parse(option.date);
-          final dateKey = DateTime(date.year, date.month, date.day);
-          debugPrint(
-              '📅 Processing Option event: ${option.clientName} on $date -> dateKey: $dateKey');
-          if (events[dateKey] == null) {
-            events[dateKey] = [option];
-          } else {
-            events[dateKey]!.add(option);
+          if (option.date != null) {
+            final date = option.date!;
+            final dateKey = DateTime(date.year, date.month, date.day);
+            debugPrint(
+                '📅 Processing Option event: ${option.clientName} on $date -> dateKey: $dateKey');
+            if (events[dateKey] == null) {
+              events[dateKey] = [option];
+            } else {
+              events[dateKey]!.add(option);
+            }
           }
         } catch (e) {
           debugPrint('Error processing Option event date: $e');
@@ -776,7 +784,9 @@ class _CalendarPageState extends State<CalendarPage> {
     if (event is OnStay) return Colors.indigo;
     if (event is DirectBooking) return Colors.red;
     if (event is DirectOptions) return Colors.teal;
+    if (event is Event && event.type == EventType.directOption) return Colors.teal;
     if (event is Option) return Colors.green;
+    if (event is Event && event.type == EventType.option) return Colors.green;
     if (event is AiJob) return Colors.cyan;
     if (event is Event) {
       switch (event.type) {
@@ -814,7 +824,9 @@ class _CalendarPageState extends State<CalendarPage> {
     if (event is OnStay) return 'On Stay';
     if (event is DirectBooking) return 'Direct Booking';
     if (event is DirectOptions) return 'Direct Option';
+    if (event is Event && event.type == EventType.directOption) return 'Direct Option';
     if (event is Option) return 'Option';
+    if (event is Event && event.type == EventType.option) return 'Option';
     if (event is AiJob) return 'AI Job';
     if (event is Event) {
       switch (event.type) {
@@ -869,8 +881,12 @@ class _CalendarPageState extends State<CalendarPage> {
       return event.clientName;
     } else if (event is DirectOptions) {
       return event.clientName;
+    } else if (event is Event && event.type == EventType.directOption) {
+      return event.clientName ?? 'Direct Option';
     } else if (event is Option) {
       return event.clientName;
+    } else if (event is Event && event.type == EventType.option) {
+      return event.clientName ?? 'Option';
     } else if (event is AiJob) {
       return event.clientName;
     } else if (event is Event) {
