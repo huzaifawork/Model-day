@@ -56,10 +56,13 @@ class _OptionsListPageState extends State<OptionsListPage> {
         _error = null;
       });
 
-      // Get all events and filter for option types (excluding direct options)
+      // Get all events and filter for option types (excluding direct options and transferred options)
       final allEvents = await _eventsService.getEvents();
-      final options =
-          allEvents.where((event) => event.type == EventType.option).toList();
+      final options = allEvents
+          .where((event) => 
+              event.type == EventType.option && 
+              event.optionStatus != OptionStatus.transferredToJob)
+          .toList();
 
       // Sort by date (newest first)
       options.sort((a, b) {
@@ -369,6 +372,8 @@ class _OptionsListPageState extends State<OptionsListPage> {
         return Colors.red.withValues(alpha: 0.2);
       case 'postponed':
         return Colors.blue.withValues(alpha: 0.2);
+      case 'transferredtojob':
+        return Colors.purple.withValues(alpha: 0.2);
       default:
         return Colors.grey.withValues(alpha: 0.2);
     }
@@ -392,6 +397,8 @@ class _OptionsListPageState extends State<OptionsListPage> {
         return Colors.red;
       case 'postponed':
         return Colors.blue;
+      case 'transferredtojob':
+        return Colors.purple;
       default:
         return Colors.grey;
     }
@@ -409,6 +416,8 @@ class _OptionsListPageState extends State<OptionsListPage> {
         return 'Client Canceled';
       case 'ideclined':
         return 'I Declined';
+      case 'transferredtojob':
+        return 'Transferred to Job';
       default:
         return statusString[0].toUpperCase() + statusString.substring(1);
     }

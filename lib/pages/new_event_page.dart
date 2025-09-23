@@ -14,8 +14,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:new_flutter/services/file_upload_service.dart';
 import 'package:new_flutter/widgets/file_preview_widget.dart';
 import 'package:new_flutter/services/agents_service.dart';
+import 'package:new_flutter/services/jobs_service.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NewEventPage extends StatefulWidget {
   final EventType eventType;
@@ -1320,9 +1320,15 @@ class _NewEventPageState extends State<NewEventPage> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Transfer to Job'),
+          backgroundColor: Colors.grey[900],
+          title: const Text(
+            'Transfer to Job',
+            style: TextStyle(color: Colors.white),
+          ),
           content: const Text(
-              'Are you sure you want to transfer this option to a job? This will create a new job entry and update the option status.'),
+            'Are you sure you want to transfer this option to a job? This will create a new job entry and update the option status to confirmed.',
+            style: TextStyle(color: Colors.white),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -1330,6 +1336,10 @@ class _NewEventPageState extends State<NewEventPage> {
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.goldColor,
+                foregroundColor: Colors.black,
+              ),
               child: const Text('Transfer'),
             ),
           ],
@@ -1340,40 +1350,39 @@ class _NewEventPageState extends State<NewEventPage> {
 
       setState(() => _isLoading = true);
 
-      // Create job data from current option data
+      // Create job data using the Job model structure
       final jobData = {
         'client_name': _clientNameController.text,
-        'job_type': _isCustomOptionType
+        'type': _isCustomOptionType
             ? _customTypeController.text
-            : _selectedOptionType,
+            : (_selectedOptionType ?? 'Commercial'),
         'date': _selectedDate.toIso8601String().split('T')[0],
         'end_date': _endDate?.toIso8601String().split('T')[0],
-        'start_time': _formatTimeOfDay(_startTime),
+        'time': _formatTimeOfDay(_startTime),
         'end_time': _formatTimeOfDay(_endTime),
         'location': _locationController.text,
-        'agent_id': _selectedAgentId,
-        'day_rate': double.tryParse(_dayRateController.text),
-        'usage_rate': double.tryParse(_usageRateController.text),
+        'booking_agent': _selectedAgentId,
+        'rate': double.tryParse(_dayRateController.text) ?? 0.0,
         'currency': _selectedCurrency,
-        'agency_fee': double.tryParse(_agencyFeeController.text),
+        'agency_fee_percentage': double.tryParse(_agencyFeeController.text),
         'status': 'scheduled',
         'payment_status': 'unpaid',
-        'notes': _notesController.text,
-        'call_time': _formatTimeOfDay(_callTime),
+        'notes': '${_notesController.text}\n\n[Transferred from option]',
+        'is_multi_day': _endDate != null,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
       };
 
-      // Create the job
-      final result = await EventsService().createEvent({
-        ...jobData,
-        'type': 'job',
-      });
+      // Create the job in the jobs collection
+      final result = await JobsService.create(jobData);
 
       if (result != null) {
-        // Update option status to indicate it was transferred
+        // Update option status to transferred and add reference to job
         if (widget.existingEvent?.id != null) {
           await EventsService().updateEvent(widget.existingEvent!.id!, {
-            'option_status': 'transferred_to_job',
-            'transferred_job_id': result.id,
+            'option_status': 'transferredToJob',
+            'transferred_to_job_id': result.id,
+            'updated_at': DateTime.now().toIso8601String(),
           });
         }
 
@@ -1386,6 +1395,8 @@ class _NewEventPageState extends State<NewEventPage> {
           );
           Navigator.pop(context, true);
         }
+      } else {
+        throw Exception('Failed to create job');
       }
     } catch (e) {
       debugPrint('Error transferring to job: $e');
@@ -1643,20 +1654,20 @@ class _NewEventPageState extends State<NewEventPage> {
   }
 
   Future<void> _handleOptionConfirmation() async {
-    debugPrint('🎯 Option confirmed! Converting to appropriate event...');
+    debugPrint('🎯 Option confirmed! Updating status...');
 
     // Show confirmation dialog
-    final shouldConvert = await showDialog<bool>(
+    final shouldConfirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: Colors.grey[900],
         title: const Text(
           'Confirm Option',
           style: TextStyle(color: Colors.white),
         ),
         content: const Text(
-          'This option will be converted to a job/event. This action cannot be undone. Continue?',
-          style: TextStyle(color: Colors.grey),
+          'Are you sure you want to confirm this option? This will update the status to confirmed.',
+          style: TextStyle(color: Colors.white),
         ),
         actions: [
           TextButton(
@@ -1675,8 +1686,10 @@ class _NewEventPageState extends State<NewEventPage> {
       ),
     );
 
-    if (shouldConvert == true) {
-      await _convertOptionToEvent();
+    if (shouldConfirm == true) {
+      // Just update the option status to confirmed
+      // The user can use "Transfer to Job" button if they want to create a job
+      debugPrint('✅ Option status confirmed');
     } else {
       // Revert status back to pending if user cancels
       setState(() {
@@ -1685,155 +1698,7 @@ class _NewEventPageState extends State<NewEventPage> {
     }
   }
 
-  Future<void> _convertOptionToEvent() async {
-    try {
-      debugPrint('🔄 Converting option to event...');
 
-      // Determine event type based on option type
-      final optionType = _isCustomOptionType
-          ? _customTypeController.text
-          : (_selectedOptionType ?? 'Commercial');
-      EventType eventType = _getEventTypeFromOptionType(optionType);
-
-      // Create event data from current option data
-      final eventData = {
-        'client_name': _clientNameController.text,
-        'job_type': optionType,
-        'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
-        'location': _locationController.text,
-        'agent_id': _selectedAgentId,
-        'day_rate': double.tryParse(_dayRateController.text),
-        'currency': _selectedCurrency,
-        'status': 'scheduled',
-        'payment_status': 'unpaid',
-        'notes':
-            '${_notesController.text}\n\n[Converted from confirmed option]',
-        'created_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-      };
-
-      // Create the event in the appropriate collection
-      String? eventId = await _createEventInCollection(eventType, eventData);
-
-      if (eventId != null) {
-        // Show success message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Option confirmed and converted to ${eventType.displayName}!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-
-          // Navigate back or to the new event
-          Navigator.pop(context, true);
-        }
-      } else {
-        throw Exception('Failed to create event');
-      }
-    } catch (e) {
-      debugPrint('❌ Error converting option to event: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error converting option: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-
-        // Revert status back to pending
-        setState(() {
-          _selectedOptionStatus = OptionStatus.pending;
-        });
-      }
-    }
-  }
-
-  EventType _getEventTypeFromOptionType(String optionType) {
-    switch (optionType.toLowerCase()) {
-      case 'commercial':
-      case 'editorial':
-      case 'lookbook':
-      case 'print':
-      case 'web content':
-      case 'social media':
-        return EventType.job;
-      case 'fashion show':
-      case 'runway':
-        return EventType.casting;
-      case 'on stay':
-      case 'onstay':
-      case 'travel':
-      case 'accommodation':
-      case 'hotel':
-        return EventType.onStay;
-      case 'other':
-        return EventType.other;
-      default:
-        return EventType.job; // Default to job
-    }
-  }
-
-  Future<String?> _createEventInCollection(
-      EventType eventType, Map<String, dynamic> eventData) async {
-    try {
-      switch (eventType) {
-        case EventType.job:
-          // Create in jobs collection
-          final docRef = await FirebaseFirestore.instance
-              .collection('jobs')
-              .add(eventData);
-          return docRef.id;
-        case EventType.casting:
-          // Create in castings collection
-          final docRef = await FirebaseFirestore.instance
-              .collection('castings')
-              .add(eventData);
-          return docRef.id;
-        case EventType.onStay:
-          // Create in on_stay collection with OnStay-specific format
-          final onStayData = {
-            'location_name':
-                eventData['client_name'], // Use client name as location
-            'stay_type': 'On Stay',
-            'address': eventData['location'],
-            'check_in_date': eventData['date'],
-            'check_out_date': eventData['end_date'],
-            'cost': eventData['day_rate'] ?? 0.0,
-            'currency': eventData['currency'] ?? 'USD',
-            'contact_name': eventData['client_name'],
-            'agent_id': eventData['agent_id'],
-            'status': 'confirmed',
-            'payment_status': 'unpaid',
-            'notes': eventData['notes'],
-            'created_at': eventData['created_at'],
-            'updated_at': eventData['updated_at'],
-          };
-          final docRef = await FirebaseFirestore.instance
-              .collection('on_stay')
-              .add(onStayData);
-          return docRef.id;
-        case EventType.other:
-          // Create in events collection with type 'other'
-          eventData['type'] = 'other';
-          final docRef = await FirebaseFirestore.instance
-              .collection('events')
-              .add(eventData);
-          return docRef.id;
-        default:
-          // Create in events collection
-          eventData['type'] = eventType.toString().split('.').last;
-          final docRef = await FirebaseFirestore.instance
-              .collection('events')
-              .add(eventData);
-          return docRef.id;
-      }
-    } catch (e) {
-      debugPrint('❌ Error creating event in collection: $e');
-      return null;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {

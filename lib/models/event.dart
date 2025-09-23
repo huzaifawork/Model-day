@@ -85,6 +85,7 @@ enum OptionStatus {
   iDeclined,
   postponed,
   declined,
+  transferredToJob,
 }
 
 extension OptionStatusExtension on OptionStatus {
@@ -102,6 +103,8 @@ extension OptionStatusExtension on OptionStatus {
         return 'Postponed';
       case OptionStatus.declined:
         return 'Declined';
+      case OptionStatus.transferredToJob:
+        return 'Transferred to Job';
     }
   }
 }
