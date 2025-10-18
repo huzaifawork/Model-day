@@ -754,21 +754,6 @@ pod install
 
 ---
 
-## License
-
-MIT License - See LICENSE file for details
-
-## Contributors
-
-- **huzaifawork** - Lead Developer
-
-## Acknowledgments
-
-- Flutter team for the amazing framework
-- Firebase for backend infrastructure
-- Google for Calendar API and OAuth services
-- Codemagic for CI/CD platform
-
 ---
 
 <div align="center">
